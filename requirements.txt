@@ -1,0 +1,14 @@
+torch>=2.4            # safe_globals for weights_only checkpoint loading; CPU build is enough: pip install torch --index-url https://download.pytorch.org/whl/cpu
+grpcio>=1.62
+grpcio-tools>=1.62    # only needed to regenerate protobuf stubs
+protobuf>=4.25
+numpy>=1.26
+pandas>=2.1
+scikit-learn>=1.4
+pyyaml>=6.0
+psutil>=5.9
+cryptography>=42
+flask>=3.0
+matplotlib>=3.8
+pytest>=8.0
+scipy>=1.11           # correlated partition strategy (hierarchical clustering)

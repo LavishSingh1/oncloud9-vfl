@@ -1,0 +1,5 @@
+# Optional: only needed for the frozen text-encoder modality (vfl.cli embed-text --encoder minilm/distilbert,
+# and --dataset multimodal_digits --text-encoder minilm). The 'hashing' encoder needs none of these.
+sentence-transformers>=2.2    # MiniLM sentence embeddings
+transformers>=4.30            # DistilBERT
+# torch is already in requirements.txt
