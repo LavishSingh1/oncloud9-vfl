@@ -1,0 +1,15 @@
+# Price snapshot for NFR-9 (fill in from your provider's pricing page on the day you run).
+# C_r = sum_i p_i * t_i / 3600 + p_storage,h * G_r * h_r + p_egress * E_r ;  C_r,1000 = 1000 C_r / N_r
+measured_cloud_run: false        # true only when the sessions in the bench dir really ran on these VMs
+region: ap-south-1               # e.g. AWS Mumbai / GCP asia-south1
+currency: USD
+price_date: "2026-10-21"
+taxes_included: false
+free_tier_excluded: true
+vms:                             # every VM billed while the session ran (t_i = session wall time)
+  - {role: coordinator, type: t3.small, price_per_hour: 0.0224}
+storage_gb: 8
+storage_price_per_gb_hour: 0.000152   # e.g. 0.11 USD/GB-month / 730 h
+egress_paid: true                # count wire bytes measured by the netem relay as paid egress
+egress_price_per_gb: 0.1093
+egress_gb_override: null         # set if you measured billed egress another way

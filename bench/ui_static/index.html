@@ -1,0 +1,45 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VFL Benchmarks</title><link rel="stylesheet" href="/static/style.css"></head><body>
+<header class="topbar"><div class="brand"><div><div class="title">VFL Benchmarks <span class="muted">· analytics</span></div>
+<div class="subtitle" id="sub">loading…</div></div></div>
+<nav class="tabs"><button class="tab active" data-tab="launcher">Launcher</button><button class="tab" data-tab="runs">Runs</button>
+<button class="tab" data-tab="analytics">Analytics</button><button class="tab" data-tab="scorecard">Scorecard</button></nav></header>
+<main>
+<section id="launcher" class="pane">
+  <div class="card"><div class="card-head"><h2>Run an experiment</h2><span class="muted">queued as a background job</span></div>
+  <form id="launch-form" class="form"><div class="form-grid">
+    <label>Suite<select name="suite"><option>e1</option><option>e2</option><option>eff</option><option>def</option><option>psi</option><option>e5</option><option>sweep</option><option>security</option></select></label>
+    <label>Name<input name="name" placeholder="results/<name>"></label>
+    <label>Dataset<input name="dataset" value="breast_cancer"></label>
+    <label>Partitioner<select name="partitioner"><option value="">v1</option><option>v2</option></select></label>
+    <label>Partition<input name="partition" placeholder="optional"></label>
+    <label>Overlap<input name="overlap" placeholder="optional"></label>
+    <label>Passives<input name="passives" type="number" min="1" value="1"></label>
+    <label>Epochs<input name="epochs" type="number" value="8"></label>
+    <label>Seeds<input name="seeds" value="1,2,3"></label>
+    <label>RTTs<input name="rtts" value="0,50"></label>
+    <label>Batch sizes<input name="batch_sizes" value="32,128"></label>
+    <label>Bottom model<input name="bottom_model" placeholder="mlp / cnn / JSON"></label>
+    <label>Sweep parties<input name="sweep_parties" value="2,3,4"></label>
+  </div><div class="form-actions"><button class="btn primary" type="submit">Launch</button><span id="launch-msg" class="form-msg"></span>
+  <span class="muted">token needed if the server was started with one</span></div></form></div>
+  <div class="card"><div class="card-head"><h2>Jobs</h2></div><div class="table-wrap"><table id="jobs"><thead><tr><th>When</th><th>Suite</th><th>Out</th><th>Status</th><th></th></tr></thead><tbody></tbody></table></div>
+  <pre id="job-log" class="log" style="margin-top:10px;max-height:200px"></pre></div>
+</section>
+<section id="runs" class="pane hidden">
+  <div class="card"><div class="card-head"><h2>Runs</h2><span class="muted" id="runs-n"></span></div>
+  <div class="form-actions"><label class="muted">Group by <input id="group" value="dataset_tag,bottom_model" class="mono" style="min-width:220px"></label>
+  <label class="muted">Filter <input id="filter" placeholder="key=value;key=value" class="mono" style="min-width:200px"></label></div>
+  <div class="table-wrap"><table id="grouped"><thead><tr><th>Group</th><th class="num">Runs</th><th>Seeds</th><th class="num">AUROC mean</th><th class="num">± std</th><th class="num">95% CI</th><th>NFR-2</th></tr></thead><tbody></tbody></table></div></div>
+  <div class="card"><div class="card-head"><h2>All runs</h2></div><div class="table-wrap"><table id="runlist"><thead><tr><th>Run</th><th>Suite</th><th>Bench</th><th class="num">Seed</th><th class="num">Test AUROC</th><th>State</th><th>Config hash</th></tr></thead><tbody></tbody></table></div></div>
+</section>
+<section id="analytics" class="pane hidden">
+  <div class="card"><div class="card-head"><h2>Figures</h2><label class="muted">Bench <select id="bench-sel"></select></label>
+  <span><a id="export" class="btn" href="#">Export .zip</a></span></div><div id="figs" class="grid-figs"></div></div>
+</section>
+<section id="scorecard" class="pane hidden">
+  <div class="card"><div class="card-head"><h2>NFR scorecard</h2><span class="muted" id="sc-bench"></span></div>
+  <div class="table-wrap"><table id="nfr"><thead><tr><th>NFR</th><th>Status</th><th>Measured value</th></tr></thead><tbody></tbody></table></div></div>
+  <div class="card" id="sec-sum-card"><div class="card-head"><h2>Security suite</h2></div><div id="sec-sum" class="kv"></div></div>
+</section>
+</main><script src="/static/app.js"></script></body></html>
