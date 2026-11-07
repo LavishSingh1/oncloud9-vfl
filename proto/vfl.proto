@@ -1,0 +1,166 @@
+// Vertical Federated Learning wire protocol (OnCloud9 PRD v3).
+//
+// Two services:
+//   * Coordinator  - membership, session/batch scheduling state, epoch barriers,
+//                    telemetry. Never receives raw features, labels or tensors.
+//   * ActiveParty  - entity alignment and the per-batch representation/gradient
+//                    exchange. Labels, top model and loss stay at the active party.
+//
+// Regenerate python stubs with:  bash scripts/gen_proto.sh
+syntax = "proto3";
+
+package vfl;
+
+// ---------------------------------------------------------------- common
+message Tensor {
+  repeated int64 shape = 1;
+  string dtype = 2;          // "float32" | "float16"
+  bytes data = 3;            // little-endian row-major buffer
+}
+
+// Every training message is identified by session/epoch/batch/attempt/sender/type (FR-8).
+message MsgHeader {
+  string session_id = 1;
+  int32 epoch = 2;
+  int32 batch = 3;
+  int32 attempt = 4;
+  string sender = 5;
+  string msg_type = 6;       // "activation" | "gradient" | "align" | ...
+  string phase = 7;          // "train" | "eval"
+  string batch_digest = 8;   // hash of batch membership; both sides must agree (FR-3)
+  int64 sent_unix_ns = 9;
+}
+
+// ---------------------------------------------------------------- coordinator
+message RegisterRequest {
+  string party_id = 1;
+  string role = 2;           // "active" | "passive"
+  string address = 3;        // gRPC address other parties use (active only)
+  string ui_url = 4;
+  string hostname = 5;
+  string summary_json = 6;   // row/feature COUNTS only, never values or names
+}
+message RegisterReply {
+  bool ok = 1;
+  string error = 2;
+  string coordinator_id = 3;
+}
+
+message HeartbeatRequest {
+  string party_id = 1;
+  string status = 2;
+  string progress_json = 3;
+}
+message HeartbeatReply {
+  string command = 1;        // "NONE" | "START" | "STOP"
+  string session_json = 2;   // session config + participants for START
+  bool known = 3;            // false => party must re-register
+  repeated string revoked_serials = 4;  // certificate serials (hex) the party's gate must reject
+}
+
+message BarrierRequest {
+  string session_id = 1;
+  string party_id = 2;
+  int32 epoch = 3;
+  string kind = 4;           // "epoch_start"
+}
+message BarrierReply {
+  bool proceed = 1;
+  string reason = 2;
+  double waited_ms = 3;
+}
+
+message ReportRequest {
+  string session_id = 1;
+  string party_id = 2;
+  string kind = 3;           // "batches" | "epoch" | "alignment" | "final" | "error" | "event"
+  string payload_json = 4;
+}
+message ReportReply {
+  bool ok = 1;
+  string error = 2;
+}
+
+service Coordinator {
+  rpc Register(RegisterRequest) returns (RegisterReply);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatReply);
+  rpc Barrier(BarrierRequest) returns (BarrierReply);
+  rpc Report(ReportRequest) returns (ReportReply);
+}
+
+// ---------------------------------------------------------------- active party
+message AlignRequest {
+  MsgHeader header = 1;
+  string mode = 2;           // "experimental" | "dh_psi"
+  int32 round = 3;           // dh_psi, 2 parties: 1, 2.  >= 3 parties: 11 submit, 12 work, 13 result
+  repeated bytes items = 4;
+  repeated int32 indices = 5;
+  string task = 6;           // multi-party PSI round 13: whose set these re-blinded items belong to
+}
+message AlignReply {
+  bool ok = 1;
+  string error = 2;
+  repeated bytes items = 3;      // experimental: ordered intersection; psi r1: A^b; multi-party: set to re-blind
+  repeated bytes peer_items = 4; // psi r1: active's own H(y)^b (shuffled)
+  int32 n_aligned = 5;
+  string task = 6;               // multi-party PSI: whose set `items` is (round 12 "task")
+  repeated int32 indices = 7;    // multi-party PSI "done": this party's positions of the intersection
+  string status = 8;             // multi-party PSI round 12: "task" | "wait" | "done"
+  int32 n_parties = 9;           // multi-party PSI: parties in the protocol
+}
+
+message ExchangeRequest {
+  MsgHeader header = 1;
+  Tensor activation = 2;
+}
+message ExchangeReply {
+  MsgHeader header = 1;
+  Tensor gradient = 2;           // empty for phase == "eval"
+  bool duplicate = 3;            // server had already committed this batch
+  double server_wait_ms = 4;     // waiting for other parties' activations
+  double server_compute_ms = 5;  // top model forward/backward/step at active
+  double server_delay_ms = 6;    // injected fault delay, if any
+  bool dropped = 7;              // straggler policy: this party missed the slot; no update this batch
+}
+
+message PingRequest { string sender = 1; }
+message PingReply { string node = 1; int64 unix_ns = 2; }
+
+service ActiveParty {
+  rpc Align(AlignRequest) returns (AlignReply);
+  rpc Exchange(ExchangeRequest) returns (ExchangeReply);
+  rpc Ping(PingRequest) returns (PingReply);
+}
+
+// ---------------------------------------------------------------- enrollment (port 50049, server-only TLS)
+// Parties generate their key locally and send a CSR. Join modes at the coordinator:
+//   static   - enrollment disabled (certificates distributed by hand, v1)
+//   token    - single-use, expiring token (carries the root CA fingerprint)
+//   approval - the request waits on the coordinator dashboard until an operator approves it
+message EnrollRequest {
+  string party_id = 1;
+  string role = 2;           // "active" | "passive"
+  bytes csr_pem = 3;
+  string token = 4;          // token mode
+  string request_id = 5;     // approval mode: poll with the id returned by the first call
+  string hostname = 6;
+}
+message EnrollReply {
+  string status = 1;         // "issued" | "pending" | "denied" | "error"
+  string error = 2;
+  bytes cert_pem = 3;        // leaf certificate
+  bytes chain_pem = 4;       // intermediate CA certificate(s)
+  bytes root_pem = 5;        // trust anchor
+  string request_id = 6;
+  int64 not_after_unix = 7;
+}
+message RenewRequest {
+  bytes cert_pem = 1;        // current leaf (+ chain)
+  bytes csr_pem = 2;         // CSR for a NEW locally generated key
+  bytes signature = 3;       // ECDSA-SHA256 over csr_pem with the CURRENT key (proof of possession)
+}
+
+service Enrollment {
+  rpc Enroll(EnrollRequest) returns (EnrollReply);
+  rpc Renew(RenewRequest) returns (EnrollReply);
+}

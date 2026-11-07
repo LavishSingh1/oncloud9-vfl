@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VFL Node Console</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22"><rect x="2" y="3" width="6" height="18" rx="1.5"/><rect x="9" y="3" width="6" height="18" rx="1.5"/><rect x="16" y="3" width="6" height="18" rx="1.5"/></svg>
+    </span>
+    <div>
+      <div class="title">Vertical FL <span class="muted">· OnCloud9</span></div>
+      <div class="subtitle" id="node-line">connecting…</div>
+    </div>
+  </div>
+  <div class="top-right">
+    <span class="pill" id="role-pill">—</span>
+    <span class="pill" id="status-pill">—</span>
+    <span class="pill" id="tls-pill">—</span>
+    <span class="updated" id="updated">—</span>
+  </div>
+</header>
+
+<main id="app">
+  <nav class="tabs hidden" id="coord-tabs">
+    <button class="tab active" data-tab="overview">Overview</button>
+    <button class="tab" data-tab="security">Security<span class="tab-badge hidden" id="sec-badge"></span></button>
+    <button class="tab" data-tab="inference">Inference</button>
+    <button class="tab" data-tab="identities" id="tab-identities">Identities</button>
+  </nav>
+  <section class="kpis" id="kpis"></section>
+
+  <!-- ============ COORDINATOR ============ -->
+  <div id="coord-view" class="view hidden" data-pane="overview">
+    <div class="grid two">
+      <section class="card">
+        <div class="card-head"><h2>Parties</h2><span class="muted" id="party-count"></span></div>
+        <div class="table-wrap"><table id="party-table"><thead><tr>
+          <th>Party</th><th>Role</th><th>Host</th><th>Data</th><th>Status</th><th>Progress</th><th></th>
+        </tr></thead><tbody></tbody></table></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><h2>Start a session</h2><span class="muted" id="form-meta">every training key · from the config schema</span></div>
+        <form id="start-form" class="form" autocomplete="off">
+          <div id="cfg-form" class="cfg-form"><p class="muted">loading the config schema…</p></div>
+          <div class="form-actions">
+            <button type="submit" class="btn primary" id="start-btn">Start session</button>
+            <button type="button" class="btn danger" id="stop-btn">Stop current</button>
+            <button type="button" class="btn" id="reset-btn" title="back to the coordinator's session defaults (configs/session.yaml)">Reset to defaults</button>
+            <button type="button" class="btn" id="preview-btn" title="validate and show the resulting overrides">Preview</button>
+            <span class="form-msg" id="form-msg"></span>
+          </div>
+          <pre class="cfg-preview hidden" id="cfg-preview"></pre>
+        </form>
+      </section>
+    </div>
+
+    <div class="grid two">
+      <section class="card"><div class="card-head"><h2>Training loss (per batch)</h2></div><canvas class="chart" id="c-loss"></canvas></section>
+      <section class="card"><div class="card-head"><h2>Utility per epoch</h2><span class="muted">AUROC</span></div><canvas class="chart" id="c-auc"></canvas></section>
+      <section class="card"><div class="card-head"><h2>Batch latency</h2><span class="muted">ms, per passive party</span></div><canvas class="chart" id="c-lat"></canvas></section>
+      <section class="card"><div class="card-head"><h2>Label-leakage attack</h2><span class="muted">AUC on sent gradients, 0.5 = none</span></div><canvas class="chart" id="c-leak"></canvas></section>
+    </div>
+
+    <div class="grid two">
+      <section class="card">
+        <div class="card-head"><h2>Session events</h2><span class="muted" id="sess-id"></span></div>
+        <div class="log" id="events"></div>
+      </section>
+      <section class="card">
+        <div class="card-head"><h2>Session history</h2></div>
+        <div class="table-wrap"><table id="hist-table"><thead><tr>
+          <th>Session</th><th>State</th><th>Bs</th><th>RTT</th><th>Epochs</th><th>Test AUROC</th><th></th>
+        </tr></thead><tbody></tbody></table></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- ============ COORDINATOR: SECURITY ============ -->
+  <div id="security-view" class="view hidden" data-pane="security">
+    <section class="kpis" id="sec-kpis"></section>
+    <div class="grid two">
+      <section class="card">
+        <div class="card-head"><h2>Security events by type</h2><span class="muted">blocked / detected / succeeded</span></div>
+        <div class="table-wrap"><table id="sec-type-table"><thead><tr>
+          <th>Attack type</th><th>Layer</th><th class="num">Blocked</th><th class="num">Detected</th><th class="num">Succeeded</th>
+        </tr></thead><tbody></tbody></table></div>
+      </section>
+      <section class="card" id="lab-card">
+        <div class="card-head"><h2>Attack simulator</h2><span class="badge warn">lab mode</span></div>
+        <div id="lab-body"><p class="muted">Start the coordinator with <code>--lab-mode</code> to run the security conformance suite against this deployment.</p></div>
+      </section>
+    </div>
+    <section class="card">
+      <div class="card-head"><h2>Live security feed</h2><span class="muted">server-observed and attacker-reported</span></div>
+      <div class="table-wrap"><table id="sec-feed"><thead><tr>
+        <th>Time</th><th>Type</th><th>Layer</th><th>Outcome</th><th>Source</th><th>Claimed</th><th>Cert</th><th>Defence</th><th>Evidence</th><th>Detail</th>
+      </tr></thead><tbody></tbody></table></div>
+    </section>
+  </div>
+
+  <!-- ============ COORDINATOR: INFERENCE ============ -->
+  <div id="inference-view" class="view hidden" data-pane="inference">
+    <div class="grid two">
+      <section class="card">
+        <div class="card-head"><h2>Privacy vs utility</h2><span class="muted">attack AUC vs test AUROC</span></div>
+        <canvas class="chart" id="inf-chart"></canvas>
+      </section>
+      <section class="card">
+        <div class="card-head"><h2>Honest reporting</h2></div>
+        <p class="muted">The label-leakage attack is inference by an <b>authorised</b> party on the gradients it legitimately receives. Mutual TLS does not prevent it. An attack AUC above 0.6 is reported as <b>succeeded</b>. Formal ε-label-DP (randomized response) is the only setting that bounds it: it covers the trained model and the gradients passives receive, not the test metrics shown here (true labels).</p>
+        <div class="kv" id="inf-kv"></div>
+      </section>
+    </div>
+    <section class="card">
+      <div class="card-head"><h2>Attack AUC and defence per session</h2></div>
+      <div class="table-wrap"><table id="inf-table"><thead><tr>
+        <th>Session</th><th>Defence</th><th class="num">σ</th><th class="num">label ε</th><th class="num">test AUROC</th><th class="num">norm AUC</th><th class="num">cosine AUC</th><th>Outcome</th>
+      </tr></thead><tbody></tbody></table></div>
+    </section>
+  </div>
+
+  <!-- ============ COORDINATOR: IDENTITIES ============ -->
+  <div id="identities-view" class="view hidden" data-pane="identities">
+    <div id="pki-off" class="card"><p class="muted">Identity management is available in PKI mode. Create the CA with <code>vfl.cli certs --mode pki</code> and start the coordinator with a join mode.</p></div>
+    <div id="pki-on" class="hidden">
+      <section class="card">
+        <div class="card-head"><h2>Enrollment</h2><span class="muted" id="pki-meta"></span></div>
+        <div class="form-actions" id="join-mode-row"></div>
+        <div class="form-actions">
+          <select id="tok-role"><option>passive</option><option>active</option></select>
+          <input id="tok-name" placeholder="bind to id (optional)" style="max-width:160px">
+          <button class="btn" id="tok-btn">Create join token</button>
+          <input id="tok-out" readonly class="mono" style="flex:1;min-width:200px" placeholder="token appears here">
+        </div>
+      </section>
+      <div class="grid two">
+        <section class="card">
+          <div class="card-head"><h2>Join requests</h2></div>
+          <div class="table-wrap"><table id="req-table"><thead><tr>
+            <th>Party</th><th>Role</th><th>Host</th><th>When</th><th>Status</th><th></th>
+          </tr></thead><tbody></tbody></table></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2>Identities</h2></div>
+          <div class="table-wrap"><table id="id-table"><thead><tr>
+            <th>Name</th><th>Role</th><th>Serial</th><th>Expires</th><th>Via</th><th></th>
+          </tr></thead><tbody></tbody></table></div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ PARTY ============ -->
+  <div id="party-view" class="view hidden">
+    <div class="grid two">
+      <section class="card">
+        <div class="card-head"><h2>Privacy boundary</h2><span id="align-badge" class="badge">—</span></div>
+        <div class="boundary" id="boundary"></div>
+      </section>
+      <section class="card">
+        <div class="card-head"><h2>Where batch time goes</h2><span class="muted">mean over recent batches</span></div>
+        <div id="breakdown"></div>
+        <div class="kv" id="session-kv"></div>
+      </section>
+    </div>
+    <div class="grid two">
+      <section class="card"><div class="card-head"><h2 id="p-chart1-title">Batch latency</h2></div><canvas class="chart" id="p-c1"></canvas></section>
+      <section class="card"><div class="card-head"><h2 id="p-chart2-title">Traffic per epoch</h2></div><canvas class="chart" id="p-c2"></canvas></section>
+    </div>
+    <div class="grid two">
+      <section class="card">
+        <div class="card-head"><h2>Epochs</h2></div>
+        <div class="table-wrap"><table id="epoch-table"><thead></thead><tbody></tbody></table></div>
+      </section>
+      <section class="card">
+        <div class="card-head"><h2>Local data</h2><span class="muted">schema only, never values</span></div>
+        <div class="kv" id="data-kv"></div>
+        <div class="chips" id="features"></div>
+      </section>
+    </div>
+    <section class="card">
+      <div class="card-head"><h2>Node log</h2><span class="muted" id="log-dir"></span></div>
+      <div class="log" id="node-log"></div>
+    </section>
+  </div>
+</main>
+<script src="/static/config_form.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
