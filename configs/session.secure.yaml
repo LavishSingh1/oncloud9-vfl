@@ -1,0 +1,50 @@
+# Hardened session profile (v2.3) - use this for the red/blue-team exercise and for any run with real data:
+#   python -m vfl.cli coordinator --config configs/session.secure.yaml ...
+# Everything here is an existing, tested option; configs/session.yaml keeps the reproducible v1 defaults.
+# What each option does is in docs/CONFIG.md and docs/PROJECT_DOCUMENTATION.md section 6.
+session:
+  name: secure-run
+  dataset_tag: breast_cancer
+  seed: 42
+  epochs: 20
+  batch_size: 64
+  eval_batch_size: 512
+  lr: 0.001
+  optimizer: adam
+  bottom_model: mlp
+  hidden_dim: 64
+  num_classes: null
+  embed_dim: 16
+  top_hidden: 32
+  split: {val: 0.15, test: 0.15}
+  alignment: dh_psi            # private set intersection (any number of parties); experimental hashing is NON-PRIVATE (R1)
+  codec: fp32
+  inject_rtt_ms: 0
+  rpc_deadline_s: 60
+  max_retries: 3
+  defense:
+    type: none
+    label_rr_epsilon: 2.0      # formal eps-label-DP on everything sent to passive parties (R2)
+    noise_source: secret       # defence randomness from a party-local secret (never `seed` outside the lab)
+    rep_noise_sigma: 0.0
+  straggler:
+    policy: wait
+    slot_deadline_s: 5.0
+  security:
+    validate_tensors: true
+    max_row_norm: 100.0        # refuse absurd representation rows (scaled / poisoned inputs)
+    max_grad_row_norm: 10.0    # passives refuse absurd gradients from the active party
+    private_init: true         # the active party cannot compute a passive's initial weights (R3)
+    anomaly_detection: true    # flag free-riding / poisoned representations
+    # passive guard against a MALICIOUS active party (vfl/passive_guard.py)
+    passive_grad_clip: 1.0     # bound every received gradient row (honest rows are ~1/batch_size, far below)
+    grad_monitor: warn         # flag gradients that jump far above the trend (stop = leave after 3 in a row)
+    leakage_audit: warn        # each epoch: how much of my raw features can be rebuilt from what I sent
+    leakage_r2_max: 0.9
+    # max_param_drift: 2.0     # trust region around the initial weights; tune for your model before enabling
+  attack_eval: true
+  fault: {duplicate: [], delay: [], delay_s: 2.0}
+  checkpoint: true
+  target_val_auroc: 0.98
+  torch_threads: 1
+  deterministic: true

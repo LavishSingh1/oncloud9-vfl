@@ -1,0 +1,44 @@
+# Containerised deployment on one host (separate containers = separate processes/network
+# namespaces). For real multi-machine runs, start each service on its own machine instead.
+#   docker compose -f docker/docker-compose.yml up --build
+#   then open http://localhost:8080 and start a session.
+x-vfl: &vfl
+  build: {context: .., dockerfile: docker/Dockerfile}
+  image: oncloud9/vfl:latest
+  volumes:
+    - shared:/shared
+
+services:
+  setup:            # one-shot: certificates + per-party data
+    <<: *vfl
+    entrypoint: ["sh", "-c"]
+    command:
+      - >-
+        [ -f /shared/certs/ca.crt ] || python -m vfl.cli certs --out /shared/certs --passives 1 &&
+        [ -f /shared/data/active.csv ] || python -m vfl.cli prepare-data --dataset breast_cancer --out /shared/data
+
+  coordinator:
+    <<: *vfl
+    depends_on: {setup: {condition: service_completed_successfully}}
+    command: [coordinator, --tls-dir, /shared/certs, --run-dir, /shared/runs, --log-dir, /shared/logs,
+              --ui-host, 0.0.0.0, --ui-port, "8080"]
+    ports: ["8080:8080"]
+
+  active:
+    <<: *vfl
+    depends_on: [coordinator]
+    command: [active, --data, /shared/data/active.csv, --coordinator, coordinator:50050,
+              --listen, 0.0.0.0:50051, --advertise, active:50051, --tls-dir, /shared/certs,
+              --ui-host, 0.0.0.0, --ui-port, "8081", --log-dir, /shared/logs, --ckpt-dir, /shared/checkpoints]
+    ports: ["8081:8081"]
+
+  passive-1:
+    <<: *vfl
+    depends_on: [active]
+    command: [passive, --id, passive-1, --data, /shared/data/passive-1.csv, --coordinator, coordinator:50050,
+              --tls-dir, /shared/certs, --ui-host, 0.0.0.0, --ui-port, "8082", --log-dir, /shared/logs,
+              --ckpt-dir, /shared/checkpoints]
+    ports: ["8082:8082"]
+
+volumes:
+  shared:
