@@ -1,0 +1,15 @@
+stateDiagram-v2
+  [*] --> Waiting: coordinator up
+  Waiting --> Ready: active + ≥ min_passive parties registered
+  Ready --> Validating: START requested
+  Validating --> Ready: config / manifest mismatch (refused)
+  Validating --> Aligning: START delivered by heartbeat
+  Aligning --> Training: aligned order agreed
+  Training --> EpochBarrier: last batch of epoch committed
+  EpochBarrier --> Training: all parties reached barrier
+  EpochBarrier --> Testing: final epoch
+  Training --> Stopped: STOP / party lost / timeout
+  EpochBarrier --> Stopped: barrier_timeout_s
+  Testing --> Completed
+  Stopped --> Aligning: resume_from (last complete epoch checkpoint)
+  Completed --> [*]

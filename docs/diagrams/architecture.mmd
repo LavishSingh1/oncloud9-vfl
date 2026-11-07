@@ -1,0 +1,20 @@
+flowchart LR
+  OP(["Operator<br/>browser · CLI"])
+  C["<b>Coordinator</b><br/>gRPC :50050 · UI :8080<br/>membership · roles · START/STOP<br/>epoch barriers · telemetry · resume<br/><i>no features, labels or tensors</i>"]
+  A["<b>Active party</b><br/>gRPC :50051 · UI :8081<br/>features X_A + <b>labels Y</b><br/>bottom f_A → <b>top model g + loss</b>"]
+  P1["<b>Passive party 1</b><br/>UI :8082<br/>features X_1 → bottom f_1"]
+  PN["<b>Passive party N</b><br/>UI :808x<br/>features X_N → bottom f_N"]
+  OP -->|"start / stop / monitor"| C
+  A -.->|"control + telemetry (mTLS)"| C
+  P1 -.->|"control + telemetry (mTLS)"| C
+  PN -.->|"control + telemetry (mTLS)"| C
+  P1 <==>|"H₁ = f₁(X₁)  ⟶<br/>⟵  ∂L/∂H₁"| A
+  PN <==>|"H_N  ⟶<br/>⟵  ∂L/∂H_N"| A
+  classDef coord fill:#EEF2FF,stroke:#4F46E5,color:#1E1B4B
+  classDef act fill:#ECFDF5,stroke:#059669,color:#064E3B
+  classDef pas fill:#FFF7ED,stroke:#EA580C,color:#7C2D12
+  classDef op fill:#F1F5F9,stroke:#64748B,color:#0F172A
+  class C coord
+  class A act
+  class P1,PN pas
+  class OP op

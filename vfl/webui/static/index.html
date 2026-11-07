@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VFL Control Center</title>
+<link rel="stylesheet" href="/dashboard-static/style.css">
+<link rel="stylesheet" href="/static/webui.css">
+</head>
+<body>
+<header class="topbar" style="--role: var(--accent)">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22"><rect x="2" y="3" width="6" height="18" rx="1.5"/><rect x="9" y="3" width="6" height="18" rx="1.5"/><rect x="16" y="3" width="6" height="18" rx="1.5"/></svg>
+    </span>
+    <div>
+      <div class="title">Vertical FL <span class="muted">· OnCloud9 control center</span></div>
+      <div class="subtitle" id="ws-line">loading…</div>
+    </div>
+  </div>
+  <div class="top-right">
+    <span class="pill" id="lab-pill" hidden>LAB MODE</span>
+    <span class="pill" id="auth-pill">—</span>
+    <label class="tok"><span class="sr">operator token</span><input id="tok" type="password" placeholder="operator token" autocomplete="off"></label>
+  </div>
+</header>
+<nav class="tabs" id="nav">
+  <a class="tab" href="#dataprep" data-page="dataprep">Data preparation</a>
+  <a class="tab" href="#deployment" data-page="deployment">Deployment</a>
+  <a class="tab" href="#training" data-page="training">Training / Sessions</a>
+  <a class="tab" href="#attacks" data-page="attacks">Security &amp; Attacks</a>
+  <a class="tab" href="#tests" data-page="tests">Tests &amp; Benchmarks</a>
+  <a class="tab" href="#analytics" data-page="analytics">Analytics</a>
+  <a class="tab" href="#reports" data-page="reports">Reports</a>
+</nav>
+<main id="page"></main>
+<script src="/dashboard-static/config_form.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

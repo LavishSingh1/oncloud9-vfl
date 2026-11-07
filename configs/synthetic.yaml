@@ -1,0 +1,12 @@
+# Systems-benchmark workload: larger synthetic tabular task (see `make data-synthetic`).
+session:
+  name: synthetic-20k
+  dataset_tag: synthetic_20k_40f
+  seed: 42
+  epochs: 5
+  batch_size: 128
+  lr: 0.001
+  hidden_dim: 64
+  embed_dim: 16
+  top_hidden: 32
+  target_val_auroc: 0.90

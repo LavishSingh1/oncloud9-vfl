@@ -1,0 +1,18 @@
+flowchart LR
+  subgraph NET1["Reachable hosts (inbound ports open)"]
+    C["Coordinator<br/>TCP 50050 in"]
+    A["Active party<br/>TCP 50051 in"]
+  end
+  subgraph NET2["Behind NAT / home router / hotspot (outbound only)"]
+    P1["Passive 1<br/>e.g. x86 laptop"]
+    P2["Passive 2<br/>e.g. Raspberry Pi (ARM)"]
+  end
+  A -->|"control, telemetry (small)"| C
+  P1 -->|"control, telemetry"| C
+  P2 -->|"control, telemetry"| C
+  P1 ==>|"H / ∂L/∂H every batch"| A
+  P2 ==>|"H / ∂L/∂H every batch"| A
+  R["netem_proxy (optional)<br/>adds RTT, counts wire bytes"]
+  P2 -.->|"experiments"| R -.-> A
+  CA[["Private CA<br/>(offline; issues one cert per node,<br/>role in SAN)"]]
+  CA -.-> C & A & P1 & P2

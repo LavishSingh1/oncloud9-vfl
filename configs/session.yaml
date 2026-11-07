@@ -1,0 +1,43 @@
+# Default session configuration (loaded by the coordinator; every field can be
+# overridden from the dashboard form or `python -m vfl.cli start --set key=value`).
+session:
+  name: breast-cancer-2party
+  dataset_tag: breast_cancer
+  seed: 42
+  epochs: 20
+  batch_size: 64
+  eval_batch_size: 512
+  lr: 0.001
+  optimizer: adam
+  bottom_model: mlp       # mlp | linear | cnn | cnn1d | gru | text, or {party_id: kind, default: kind}
+  hidden_dim: 64          # bottom-model hidden width (0 = linear bottom)
+  num_classes: null       # null = infer (2 -> BCE, k>2 -> cross-entropy + macro one-vs-rest AUROC)
+  embed_dim: 16           # representation width sent by each party
+  top_hidden: 32
+  split: {val: 0.15, test: 0.15}
+  alignment: experimental # experimental (NON-PRIVATE) | dh_psi (two-party PSI)
+  codec: fp32             # fp32 | fp16 | int8 | topk
+  inject_rtt_ms: 0        # application-level RTT emulation at passive parties
+  rpc_deadline_s: 30
+  max_retries: 3
+  defense:
+    type: none            # none | grad_noise
+    clip: 0.05            # dL/dH rows scale like 1/batch_size; clip accordingly
+    noise_multiplier: 1.0
+    label_rr_epsilon: null  # set a number for formal eps-label-DP (randomized response)
+    rep_noise_sigma: 0.0    # passive-side representation noise (feature-reconstruction defence)
+  straggler:
+    policy: wait          # wait | drop (proceed without a party that misses its slot deadline)
+    slot_deadline_s: 5.0
+  security:
+    validate_tensors: true
+    max_row_norm: null    # optional L2 bound per representation row
+  attack_eval: true
+  fault:
+    duplicate: []         # e.g. [[0, 3]]
+    delay: []             # e.g. [[1, 5]]
+    delay_s: 2.0
+  checkpoint: true
+  target_val_auroc: 0.98
+  torch_threads: 1
+  deterministic: true

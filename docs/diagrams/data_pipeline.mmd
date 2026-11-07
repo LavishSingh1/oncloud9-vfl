@@ -1,0 +1,13 @@
+flowchart LR
+  SRC[("Source dataset<br/>breast_cancer · synthetic · csv ·<br/>adult · digits · HAR · npz …")]
+  PREP["vfl.cli prepare-data<br/>(v1 or v2 partitioner)"]
+  SRC --> PREP
+  PREP --> AC["active.csv + active.manifest.json<br/>id · features · <b>label</b>"]
+  PREP --> PC1["passive-1.csv + manifest<br/>id · features"]
+  PREP --> PCN["passive-N.csv + manifest"]
+  PREP --> EXP["manifest.json · data_report.json<br/><i>experimenter only</i>"]
+  AC --> ALIGN{{"alignment<br/>experimental | dh_psi"}}
+  PC1 --> ALIGN
+  PCN --> ALIGN
+  ALIGN --> SPLIT["make_splits(seed, aligned order)<br/>train / val / test"]
+  SPLIT --> BATCH["epoch_batches(seed, epoch)<br/>+ batch_digest per message"]

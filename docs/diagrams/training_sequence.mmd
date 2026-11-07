@@ -1,0 +1,32 @@
+sequenceDiagram
+  autonumber
+  participant O as Operator
+  participant C as Coordinator
+  participant A as Active party
+  participant P as Passive party (each)
+  A->>C: Register(role=active) over mTLS
+  P->>C: Register(role=passive) over mTLS
+  Note over C: gate binds claimed id + role to the certificate,<br/>one active only
+  O->>C: start session (config validated against schema + manifests)
+  C-->>A: START (via Heartbeat reply)
+  C-->>P: START (via Heartbeat reply)
+  P->>A: Align (experimental hashes or DH-PSI rounds)
+  A-->>P: aligned order
+  Note over A,P: same seed ⇒ same split and batch schedule at every party
+  loop every epoch
+    loop every mini-batch b
+      Note over P: H = f(X_b)  (local forward)
+      P->>A: Exchange(MsgHeader{session,epoch,batch,attempt,sender}, digest, H)
+      Note over A: slot barrier: wait for all required H<br/>duplicate / retry → cached reply, no 2nd step
+      Note over A: L = ℓ(g(H_A, H_1..H_N), Y_b)<br/>optimizer step
+      A-->>P: ∂L/∂H
+      Note over P: backward + optimizer step
+    end
+    Note over A,P: validation metrics (active), checkpoints (all)
+    A->>C: Barrier(epoch) + Report(metrics)
+    P->>C: Barrier(epoch) + Report(telemetry)
+    C-->>A: release next epoch
+    C-->>P: release next epoch
+  end
+  A->>C: test metrics, run summary
+  C->>O: session summary, runs/<session>/

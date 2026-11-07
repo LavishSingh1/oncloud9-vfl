@@ -1,0 +1,17 @@
+flowchart TB
+  L1["<b>1 · Entry points</b><br/>cli.py · webui/ (unified UI) · dashboard/ (per node) · bench/ · attacks/"]
+  L2["<b>2 · Node runtime</b><br/>coordinator.py · active.py · passive.py · party_base.py"]
+  L3["<b>3 · Training & privacy</b> (no network code)<br/>core.py · models.py · data.py · datasets.py · partition.py<br/>alignment.py · psi_wire.py · defense.py · passive_guard.py · local_sim.py"]
+  L4["<b>4 · Platform</b><br/>transport.py · security.py · enrollment.py · codec.py · telemetry.py<br/>config.py · config_schema.py · ids.py · limits.py · websec.py · proto/"]
+  L1 -->|"start nodes / jobs"| L2
+  L1 -->|"baselines (local_sim)"| L3
+  L2 -->|"train_step / forward / backward, align, defences"| L3
+  L2 -->|"gRPC, mTLS, encode, log, validate"| L4
+  classDef a fill:#F1F5F9,stroke:#64748B,color:#0F172A
+  classDef b fill:#EEF2FF,stroke:#4F46E5,color:#1E1B4B
+  classDef c fill:#ECFDF5,stroke:#059669,color:#064E3B
+  classDef d fill:#FFF7ED,stroke:#EA580C,color:#7C2D12
+  class L1 a
+  class L2 b
+  class L3 c
+  class L4 d

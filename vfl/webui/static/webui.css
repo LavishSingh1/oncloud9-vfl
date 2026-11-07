@@ -1,0 +1,53 @@
+[hidden] { display: none !important; }   /* the hidden attribute must win over .pill/.btn display rules */
+/* Unified UI additions on top of the node dashboards' style.css (same tokens, light + dark). */
+.tabs { position: sticky; top: 0; z-index: 4; background: var(--bg); border-bottom: 1px solid var(--line); }
+.tab { text-decoration: none; }
+.tab:hover { text-decoration: none; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.tok input { font: 12px var(--mono); padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--panel-2); color: var(--text); width: 150px; }
+#lab-pill { color: var(--warn); border-color: var(--warn); }
+.page-intro { color: var(--muted); margin: 0 0 14px; max-width: 900px; }
+.fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px 14px; }
+.fld { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fld > .lbl { font: 12px var(--mono); color: var(--text); }
+.fld > .hlp { font-size: 11px; color: var(--muted); line-height: 1.35; }
+.fld.wide { grid-column: 1 / -1; }
+select, input[type=text], input[type=password], input:not([type]) {
+  font: 13px var(--mono); color: var(--text); background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 8px; min-width: 0; max-width: 100%; }
+select:focus, input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.row + .row { margin-top: 10px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+label.chip { display: inline-flex; gap: 5px; align-items: center; font: 12px var(--mono); padding: 3px 8px;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--panel-2); cursor: pointer; }
+label.chip input { margin: 0; }
+label.chip.on { border-color: var(--accent); color: var(--accent); }
+pre.logbox { font: 12px/1.45 var(--mono); background: var(--panel-2); border-radius: 6px; padding: 8px 10px;
+  max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word; margin: 8px 0 0; }
+.status { font: 600 11px var(--sans); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); }
+.status.done, .status.live, .status.ok, .status.pass { color: var(--ok); border-color: var(--ok); }
+.status.running, .status.starting, .status.queued { color: var(--warn); border-color: var(--warn); }
+.status.failed, .status.error, .status.fail { color: var(--danger); border-color: var(--danger); }
+.status.stopped, .status.cancelled { color: var(--muted); }
+.note { font-size: 12px; color: var(--muted); border-left: 3px solid var(--warn); padding: 6px 10px; background: var(--panel-2);
+  border-radius: 0 6px 6px 0; margin: 10px 0 0; }
+.note.ok { border-left-color: var(--ok); }
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 14px; }
+@media (max-width: 560px) { .gallery { grid-template-columns: 1fr; } }
+.fig { margin: 0; }
+.fig img { width: 100%; height: auto; display: block; background: #fff; border-radius: 6px; border: 1px solid var(--line); }
+.fig figcaption { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; margin-top: 6px; color: var(--muted); }
+.fig .nodata { padding: 40px 10px; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 6px; font-size: 13px; }
+.kvs { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 13px; }
+.kvs .k { color: var(--muted); } .kvs .v { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+code.cmd { display: block; white-space: pre-wrap; word-break: break-all; padding: 6px 8px; }
+.hidden-soft { opacity: .5; }
+.sticky-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+h3.sub { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 14px 0 6px; }
+td .btn.mini + .btn.mini { margin-left: 4px; }
+
+.suite-help { grid-column: 1 / -1; margin: 0 0 6px; padding: 0; list-style: none; columns: 2 260px; column-gap: 18px; font-size: 12px; color: var(--muted); }
+.suite-help li { margin: 0 0 4px; break-inside: avoid; }
+.suite-help code { color: var(--text); margin-right: 4px; }
