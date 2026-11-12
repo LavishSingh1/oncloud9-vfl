@@ -589,3 +589,10 @@ Operational notes:
 * *`batch membership digest mismatch`* — parties hold different data versions or ids; regenerate data.
 * *`parties still busy`* — the previous session is still shutting down; wait a few seconds.
 * *Need more detail* — `--log-level DEBUG`, then read `logs/<node>/<node>.events.log`.
+
+## Red-team baseline (DS252)
+
+- **Tag:** `rt-baseline`
+- **Commit:** `07ed305030188535daa2d1c5acaa95c82b83a4d5`
+- **Red teams:** Order of Phoenix, SkySync
+- Original findings must be reported against this tag. Retests should cite the specific fix commit or PR.
