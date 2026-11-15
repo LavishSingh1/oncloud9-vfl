@@ -126,6 +126,7 @@ def prepare_images(out_dir, X, y, name, n_parties, strategy="image_strips", seed
         if strategy == "random":
             cols = list(np.random.default_rng(seed).permutation(cols))
         groups = [list(b) for b in np.array_split(np.array(cols, dtype=object), n_parties)]
+    P.check_nonempty_groups(groups)
     ids, held = _split_rows(N, n_parties, overlap, seed, id_style)
     os.makedirs(out_dir, exist_ok=True)
     names = ["active"] + [f"passive-{i}" for i in range(1, n_parties)]
