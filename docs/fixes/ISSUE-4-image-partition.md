@@ -49,7 +49,7 @@ pooling window by disabling pooling.
 
 ## 4. Tests
 
-`tests/test_partition_boundaries.py` (9 tests; 5 of them fail on `rt-baseline`):
+`tests/test_partition_boundaries.py` (9 tests; 6 of them fail on `rt-baseline`):
 
 | Test | Checks |
 |---|---|
