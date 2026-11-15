@@ -80,6 +80,7 @@ tests/test_config_schema.py
 tests/test_core.py
 tests/test_data.py
 tests/test_dataprep.py
+tests/test_entity_ids.py
 tests/test_models.py
 tests/test_models_v21.py
 tests/test_partition.py

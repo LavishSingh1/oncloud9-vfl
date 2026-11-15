@@ -271,11 +271,36 @@ def _near_square(n: int) -> tuple:
 # --------------------------------------------------------------------------
 # Entity overlap and ids
 # --------------------------------------------------------------------------
+ID_SCHEME = "sha256-128"   # recorded in every manifest; v2.3.1 and earlier used truncated SHA-1 (48 bits)
+ID_HEX_CHARS = 32          # 128 bits: P(any collision) < n^2 / 2^129, i.e. < 1e-20 even at 1e9 rows
+
+
+def entity_id(salt: str, row: int) -> str:
+    """Opaque, stable id for source row `row`: first 128 bits of SHA-256(salt:row) as hex."""
+    return hashlib.sha256(f"{salt}:{row}".encode()).hexdigest()[:ID_HEX_CHARS]
+
+
+def check_unique_ids(ids) -> None:
+    """Refuse duplicate entity ids before any party file is written. A duplicate would make
+    alignment join two different entities (silently, when the two rows end up at different
+    parties), so this is checked explicitly instead of relying on the hash width alone."""
+    ids = np.asarray(ids)
+    uniq, counts = np.unique(ids, return_counts=True)
+    if len(uniq) != len(ids):
+        raise ValueError(f"entity id generation produced {int((counts > 1).sum())} duplicate id(s) "
+                         f"for {len(ids)} rows; refusing to write party files")
+
+
 def make_ids(n_rows: int, style: str, seed: int) -> np.ndarray:
+    """Entity ids shared by every party for the same source row (unique by construction and checked)."""
     if style == "int":
         return np.arange(n_rows)
+    if style != "hash":
+        raise ValueError(f"unknown id style {style!r} (expected 'hash' or 'int')")
     salt = f"vfl-{seed}"                                   # opaque, stable per seed
-    return np.array([hashlib.sha1(f"{salt}:{i}".encode()).hexdigest()[:12] for i in range(n_rows)])
+    ids = np.array([entity_id(salt, i) for i in range(n_rows)])
+    check_unique_ids(ids)
+    return ids
 
 
 def overlap_masks(n_rows: int, n: int, overlap: float, seed: int) -> np.ndarray:
@@ -348,7 +373,8 @@ def partition(ds: Dataset, n_parties: int, out_dir: str, strategy: str = "random
     manifest = {
         "dataset": ds.name, "n_parties": n_parties, "strategy": strategy, "seed": seed,
         "params": {"alpha": alpha, "top_frac": top_frac, "informative_party": informative_party,
-                   "grid": grid, "one_hot": one_hot, "id_style": id_style},
+                   "grid": grid, "one_hot": one_hot, "id_style": id_style,
+                   "id_scheme": ID_SCHEME if id_style == "hash" else "row-index"},
         "entities_total": int(len(ds.X)), "overlap_requested": overlap,
         "intersection_size": inter, "intersection_ratio": round(inter / len(ds.X), 4),
         "label_balance": round(float(np.mean(ds.y)), 4) if len(np.unique(ds.y)) == 2 else None,
