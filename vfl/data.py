@@ -317,6 +317,8 @@ class PartyData:
             X = np.ascontiguousarray(z["X"], dtype=np.float32)
             cols = [str(c) for c in z["columns"]] if "columns" in z.files else [f"x{i}" for i in range(X.shape[1])]
             y = z["y"].astype(np.float32) if "y" in z.files else None
+        if X.ndim != 2 or X.shape[1] == 0:
+            raise ValueError(f"{path}: party file has no feature columns; every party needs at least one feature")
         if len(set(ids)) != len(ids):
             raise ValueError(f"{path}: duplicate entity ids")
         if y is not None and not require_label:
@@ -350,6 +352,8 @@ class PartyData:
         elif require_label:
             raise ValueError(f"{path}: active party data must contain '{LABEL_COL}'")
         ids = df.pop(ID_COL).astype(str).tolist()
+        if len(df.columns) == 0:
+            raise ValueError(f"{path}: party file has no feature columns; every party needs at least one feature")
         X = df.apply(pd.to_numeric, errors="coerce").fillna(0.0).to_numpy(dtype=np.float32)
         out = cls(ids=ids, X=X, feature_names=list(df.columns), y=y)
         if manifest_path is None:

@@ -164,6 +164,16 @@ def _fill_empty(groups: list[list], rng: np.random.Generator) -> list[list]:
     return groups
 
 
+def check_nonempty_groups(groups: list[list]) -> None:
+    """Every party (active and passive) must own at least one feature: a party with none cannot compute a
+    bottom representation (PRD section 6.1). Checked for every strategy before any file is written."""
+    names = ["active"] + [f"passive-{i}" for i in range(1, len(groups))]
+    empty = [names[i] for i, g in enumerate(groups) if len(g) == 0]
+    if empty:
+        raise ValueError(f"feature partition leaves {', '.join(empty)} with no features; "
+                         f"every party needs at least one feature")
+
+
 def _importance(ds: Dataset, cols: list, seed: int, max_rows: int = 5000) -> pd.Series:
     """Mutual information with the label (experiment-only: needs all features + labels)."""
     from sklearn.feature_selection import mutual_info_classif
@@ -251,6 +261,10 @@ def _image_tiles(shape: tuple, n: int, strategy: str, grid: tuple | None) -> lis
         rows, cols = grid or _near_square(n)
         if rows * cols != n:
             raise ValueError(f"grid {rows}x{cols} does not give {n} parties")
+    if rows > h or cols > w:                     # np.array_split would hand some parties an empty tile
+        most = w if strategy == "image_strips" else f"{h}x{w} (rows <= {h}, columns <= {w})"
+        raise ValueError(f"{strategy}: a {h}x{w} image cannot be split into {rows}x{cols} tiles of at least one "
+                         f"pixel each; every party needs at least one feature (at most {most} parties)")
     hb = np.array_split(np.arange(h), rows)
     wb = np.array_split(np.arange(w), cols)
     groups = []
@@ -334,6 +348,7 @@ def partition(ds: Dataset, n_parties: int, out_dir: str, strategy: str = "random
         raise ValueError("need at least 2 parties (1 active + >=1 passive)")
     groups = assign_features(ds, n_parties, strategy, seed, alpha, top_frac,
                              informative_party, columns, grid)
+    check_nonempty_groups(groups)
 
     ids = make_ids(len(ds.X), id_style, seed)
     held = overlap_masks(len(ds.X), n_parties, overlap, seed)

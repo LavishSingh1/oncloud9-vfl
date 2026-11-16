@@ -84,6 +84,7 @@ tests/test_entity_ids.py
 tests/test_models.py
 tests/test_models_v21.py
 tests/test_partition.py
+tests/test_partition_boundaries.py
 vfl/config.py
 vfl/config_schema.py
 vfl/core.py

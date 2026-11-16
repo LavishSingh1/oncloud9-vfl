@@ -164,6 +164,9 @@ def resolve_bottom_kind(cfg: dict, party_id: str) -> str:
 
 def make_bottom(kind: str, in_dim: int, shape, cfg: dict) -> nn.Module:
     E = int(cfg["embed_dim"])
+    if int(in_dim) < 1:
+        raise ValueError(f"bottom_model {kind!r} needs at least one input feature, got {in_dim}; "
+                         f"re-run prepare-data so that every party owns at least one feature")
     if kind in SHAPED:
         if not shape or len(shape) != SHAPED[kind]:
             raise ValueError(f"bottom_model {kind!r} needs a {SHAPED[kind]}-D input shape from the party "
