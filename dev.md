@@ -94,7 +94,7 @@ The session state machine kept by the coordinator:
 | Module | Key functions | What it does |
 |---|---|---|
 | `data.py` | `prepare_vertical_dataset`, `prepare_v2`, `write_party_manifests`, `PartyData`, `make_splits`, `epoch_batches`, `eval_batches`, `batch_digest`, `Standardizer` | `prepare-data` back end (v1 and v2 generators). Writes one CSV and one manifest per party (labels only in the active party's file). `PartyData` loads a party's file and checks it against its manifest. `make_splits` and `epoch_batches` derive the split and the batch order from the seed and the aligned order, so parties agree without exchanging indices (FR-3); `batch_digest` lets the active party detect a disagreement. |
-| `partition.py` | `load_dataset`, `assign_features`, `overlap_masks`, `make_ids`, `partition`, `evaluate_split` | v2 partitioner: strategies `sequential`, `random`, `dirichlet`, `importance`, `correlated`, `manual`, `image_strips`, `image_grid`; partial entity overlap; hashed ids. |
+| `partition.py` | `load_dataset`, `assign_features`, `overlap_masks`, `make_ids`, `partition`, `evaluate_split` | v2 partitioner: strategies `sequential`, `random`, `dirichlet`, `importance`, `correlated`, `manual`, `image_strips`, `image_grid`; partial entity overlap; opaque entity ids (`entity_id`: first 128 bits of SHA-256, uniqueness checked by `check_unique_ids`). |
 | `datasets.py` | `prepare_images`, `prepare_sensors`, `load_har`, `prepare_multimodal_digits`, `embed_text_file` | Extra modalities: `.npz` images, synthetic sensors and UCI HAR (for `cnn1d`/`gru`), multimodal digits, and frozen text-encoder embeddings (`hashing`, MiniLM, DistilBERT). |
 
 ### 4.5 Alignment and privacy
@@ -225,7 +225,7 @@ pytest -q tests/test_core.py # one file
 
 | File(s) | Covers |
 |---|---|
-| `test_data.py`, `test_partition.py`, `test_dataprep.py` | splits, batch determinism, label ownership, partition strategies, data-prep UI |
+| `test_data.py`, `test_partition.py`, `test_dataprep.py`, `test_entity_ids.py` | splits, batch determinism, label ownership, partition strategies, data-prep UI, entity-id width and uniqueness |
 | `test_models.py`, `test_models_v21.py`, `test_core.py`, `test_codec.py` | model shapes, parameter updates, codec round trips and byte counts |
 | `test_alignment.py`, `test_multiparty_psi.py` | experimental alignment, 2-party and multi-party DH-PSI |
 | `test_defense.py`, `test_defence_randomness.py`, `test_passive_guard.py` | defences, secret randomness, passive guard |

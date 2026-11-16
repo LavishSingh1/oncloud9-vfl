@@ -190,3 +190,11 @@ Every fix has a regression test in `tests/test_redteam.py`.
   actions. With no `--ui-token` a token is generated into `logs/<node>/ui_token` (0600). `--ui-public-views` keeps
   the v2.2 behaviour. Multi-machine bundles give every machine its own dashboard token, through the environment,
   shown once.
+
+## v2.3.2 (red/blue-team fixes)
+
+- **Entity ids (issue #2).** `vfl/partition.py` now derives each opaque entity id from the first 128 bits of
+  SHA-256 (32 hex chars) instead of SHA-1 truncated to 48 bits, and refuses to write party files if any id repeats
+  (`check_unique_ids`). Manifests record `params.id_scheme: sha256-128`. Data prepared with `--id-style hash`
+  gets new id strings, so the aligned order and the seeded split change: re-run `prepare-data` before comparing
+  with earlier results. Party files prepared by v2.3.1 still load. Details: `docs/fixes/ISSUE-2-entity-ids.md`.
