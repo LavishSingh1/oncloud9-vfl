@@ -68,6 +68,17 @@ def apply_defense(grad: np.ndarray, cfg: dict, seed: int, epoch: int, batch: int
     raise ValueError(f"unknown defense {d['type']!r}")
 
 
+def rr_keep_probability(eps: float, k: int) -> float:
+    """P(keep the true label) for k-ary randomized response: e^eps / (e^eps + k - 1).
+
+    Computed as 1 / (1 + (k - 1) e^-eps), which is the same value but cannot overflow: e^-eps only
+    underflows to 0 for large eps, giving 1.0 (issue #7: the old form raised OverflowError above eps ~ 709)."""
+    eps = float(eps)
+    if not math.isfinite(eps) or eps <= 0:
+        raise ValueError(f"defense.label_rr_epsilon must be a finite number > 0, got {eps!r}")
+    return 1.0 / (1.0 + (int(k) - 1) * math.exp(-eps))
+
+
 def randomized_response(y: np.ndarray, num_classes: int, cfg: dict, seed: int, secret: str | None = None) -> np.ndarray:
     """k-ary randomized response: keep the label w.p. e^eps/(e^eps + k - 1), else a uniformly
     random OTHER class. eps-label-DP for each entity's label - provided the flip randomness is secret
@@ -76,8 +87,7 @@ def randomized_response(y: np.ndarray, num_classes: int, cfg: dict, seed: int, s
     if eps is None:
         return y
     k = max(2, int(num_classes))
-    eps = float(eps)
-    keep = math.exp(eps) / (math.exp(eps) + k - 1)
+    keep = rr_keep_probability(eps, k)
     key = f"rr|{seed}" + (f"|{secret}" if secret else "")
     rng = np.random.default_rng(int(hashlib.sha256(key.encode()).hexdigest()[:12 if not secret else 32], 16))
     yi = np.asarray(y).astype(np.int64)
