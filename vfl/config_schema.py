@@ -22,6 +22,7 @@ from __future__ import annotations
 import copy
 import difflib
 import json
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -206,8 +207,10 @@ PARAMS: tuple[Param, ...] = (
        show_if=(("defense.type", ("grad_noise",)),)),
     _p("defense.label_rr_epsilon", "float", None, "defense",
        "Randomized response on training labels: the ONLY formal guarantee here (the trained model and the "
-       "gradients sent to passives are eps-label-DP; validation/test metrics use true labels).",
-       presets=(0.5, 1.0, 2.0, 3.0, 4.0, 8.0), nullable=True, null_label="off", min=0, min_exclusive=True),
+       "gradients sent to passives are eps-label-DP; validation/test metrics use true labels). At most 100: "
+       "above ~40 no label is ever flipped, so larger values only mean 'off' while still reporting a guarantee.",
+       presets=(0.5, 1.0, 2.0, 3.0, 4.0, 8.0), nullable=True, null_label="off", min=0, max=100.0,
+       min_exclusive=True),
     _p("defense.rep_noise_sigma", "float", 0.0, "defense",
        "Passive-side representation noise (clip to rep_clip, add N(0, (sigma*rep_clip)^2)); no formal guarantee.",
        presets=(0.0, 0.01, 0.05, 0.1, 0.5, 1.0), min=0),
@@ -357,14 +360,16 @@ def leaf_keys(d: dict, prefix: str = "") -> list[str]:
 
 # ---------------------------------------------------------------- validation
 def _is_num(v) -> bool:
+    """A finite number (or a string holding one). NaN and +/-inf are refused for every float key: inf passed the
+    range checks of keys with no upper bound (e.g. `lr`, every timeout), and timeouts then crashed threading waits
+    with OverflowError (found while fixing issue #7)."""
     if isinstance(v, bool):
         return False
     if isinstance(v, (int, float)):
-        return v == v                                      # not NaN
+        return math.isfinite(v)
     if isinstance(v, str):                                 # YAML reads `1e-3` as a string; v2 accepted it
         try:
-            float(v)
-            return True
+            return math.isfinite(float(v))
         except ValueError:
             return False
     return False
@@ -382,7 +387,7 @@ def check_value(p: Param, v) -> str | None:
             return "must be an integer"
     elif t == "float":
         if not _is_num(v):
-            return "must be a number"
+            return "must be a finite number"
     elif t == "str":
         if not isinstance(v, str) or not v.strip():
             return "must be a non-empty string"
