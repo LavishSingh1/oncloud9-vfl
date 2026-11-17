@@ -66,6 +66,11 @@ class PartyNode:
         self.started_at = time.time()
         self._session_thread: threading.Thread | None = None
         self._hb_now = threading.Event()
+        # stale-session fix: lets an RPC handler ask "has the coordinator been polled since I asked?"
+        self._hb_cv = threading.Condition()
+        self._hb_started = 0                       # heartbeats begun
+        self._hb_ok = 0                            # sequence number of the last heartbeat that succeeded
+        self._hb_last_start = 0.0
         self.revoked: set = set()                 # serials from the coordinator's revocation list
         self.enroll_addr = enroll_addr            # pki mode: where to renew certificates
         self.lab_mode = lab_mode
@@ -134,8 +139,18 @@ class PartyNode:
                 log.warning("coordinator unreachable (%s); retrying", self.coord_error)
             time.sleep(3)
 
+    HB_MIN_GAP_S = 0.1     # early (nudged) heartbeats are never closer together than this
+
     def heartbeat_loop(self):
         while True:
+            gap = self._hb_last_start + self.HB_MIN_GAP_S - time.time()
+            if gap > 0:                        # nudges cannot turn this loop into a flood on the coordinator
+                time.sleep(gap)
+            with self._hb_cv:
+                self._hb_started += 1
+                seq = self._hb_started
+                self._hb_last_start = time.time()
+            ok = False
             try:
                 rep = self.coord.Heartbeat(pb.HeartbeatRequest(
                     party_id=self.party_id, status=self.status,
@@ -152,6 +167,7 @@ class PartyNode:
                         log.warning("coordinator requested STOP")
                         self.stop_event.set()
                         self.on_stop()
+                ok = True                      # any START in this reply has been applied by now
             except grpc.RpcError as e:
                 if self.coord_ok:
                     log.warning("heartbeat failed: %s", e.code().name)
@@ -159,8 +175,30 @@ class PartyNode:
                 self.coord_error = f"{e.code().name}: {e.details()}"
             except Exception:  # pragma: no cover
                 log.exception("heartbeat loop error")
+            finally:
+                with self._hb_cv:
+                    if ok:
+                        self._hb_ok = max(self._hb_ok, seq)
+                    self._hb_cv.notify_all()
             self._hb_now.wait(1.0)
             self._hb_now.clear()
+
+    def poll_coordinator(self, timeout: float) -> bool:
+        """Ask for an early heartbeat and wait for it. True once a heartbeat that BEGAN after this call has
+        completed successfully, i.e. any START the coordinator holds for this node has been applied; False if
+        that did not happen within `timeout` (coordinator slow or unreachable)."""
+        if timeout <= 0:
+            return False
+        end = time.time() + timeout
+        with self._hb_cv:
+            want = self._hb_started + 1        # an in-flight heartbeat may predate the caller's question
+            self._hb_now.set()
+            while self._hb_ok < want:
+                left = end - time.time()
+                if left <= 0:
+                    return False
+                self._hb_cv.wait(left)
+            return True
 
     def _on_start(self, payload: dict):
         from .ids import check_session_id

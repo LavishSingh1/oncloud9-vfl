@@ -27,7 +27,8 @@ from .party_base import PartyNode, StopRequested
 from .proto import vfl_pb2 as pb
 from .proto import vfl_pb2_grpc as pbg
 from .telemetry import SECURITY, percentile
-from .transport import ACTIVE_POLICY, SecurityGate, make_server, peer_cert, peer_ip, reject
+from .ids import check_session_id
+from .transport import ACTIVE_POLICY, SecurityGate, make_server, peer_cert, peer_identity, peer_ip, reject
 
 log = logging.getLogger("vfl.active")
 KEEP_SLOTS = 64
@@ -104,6 +105,7 @@ class ActiveSession:
         self.cfg = cfg
         self.passive_ids = sorted(p["party_id"] for p in participants if p["role"] == "passive")
         self.cv = threading.Condition()
+        self.closed = False                  # set once the session has finished on this node
         # alignment
         self.align_inputs: dict[str, list[bytes]] = {}
         self.align_order: list[bytes] | None = None
@@ -175,7 +177,7 @@ class ActiveSession:
                     self.cv.notify_all()
                 deadline = time.time() + float(self.cfg["slot_timeout_s"])
                 while self.align_order is None:
-                    if self.node.stop_event.is_set():
+                    if self.node.stop_event.is_set() or self.closed:
                         return pb.AlignReply(ok=False, error="session stopped")
                     if time.time() > deadline:
                         return pb.AlignReply(ok=False, error="timed out waiting for other parties' alignment input")
@@ -243,8 +245,15 @@ class ActiveSession:
         if sender not in self.passive_ids:
             self._reject(context, grpc.StatusCode.PERMISSION_DENIED, f"{sender} is not a passive participant of {self.id}",
                          "not_participant", "protocol", "session participant list", sender)
-        if not self.ready.wait(timeout=float(self.cfg["slot_timeout_s"])):
-            context.abort(grpc.StatusCode.UNAVAILABLE, "active party not ready (alignment/setup pending)")
+        # a session that fails during alignment never becomes ready: do not hold the caller for the whole
+        # slot timeout once the session is known to be over
+        ready_by = time.time() + float(self.cfg["slot_timeout_s"])
+        while not self.ready.wait(timeout=0.25):
+            if self.closed:
+                self._reject(context, grpc.StatusCode.FAILED_PRECONDITION, f"session {self.id!r} has ended",
+                             "unknown_session", "protocol", "session id check", sender)
+            if time.time() >= ready_by:
+                context.abort(grpc.StatusCode.UNAVAILABLE, "active party not ready (alignment/setup pending)")
         phase = h.phase or "train"
         epoch, b = int(h.epoch), int(h.batch)
         try:
@@ -448,6 +457,7 @@ class ActiveNode(PartyNode):
         self.malicious = malicious
         self.sess: ActiveSession | None = None
         self.sess_cv = threading.Condition()
+        self._sess_waiters = collections.Counter()   # per peer identity: calls waiting in session_for
 
     def tamper_gradients(self, grads: dict, epoch: int, batch: int) -> dict:
         """LAB ONLY (--lab-mode --malicious ...): a deviating active party, to demonstrate the passive guard.
@@ -484,17 +494,91 @@ class ActiveNode(PartyNode):
                 ev.set()
             s.aligned.set()
 
+    # Session lookup. v2.3.1 parked EVERY unknown session id for 10 s, holding one of the caller's
+    # per-identity concurrency slots and outliving typical client deadlines (DEADLINE_EXCEEDED instead of a
+    # diagnostic). The only legitimate reason to wait is the START race: a passive party can receive START from
+    # the coordinator up to one heartbeat (~1 s) before this node does. So:
+    #   * the current session                         -> served at once
+    #   * a session that has ended on this node        -> FAILED_PRECONDITION at once
+    #   * another session is running here              -> FAILED_PRECONDITION at once (START would be refused)
+    #   * START applied, session object being built    -> short wait (milliseconds)
+    #   * idle and the id is new                       -> poll the coordinator NOW; if it holds no START with
+    #                                                     that id, FAILED_PRECONDITION; otherwise proceed
+    # Every wait is capped by START_GRACE_S and by the caller's own deadline, so a client always gets a
+    # diagnostic status rather than DEADLINE_EXCEEDED, and at most MAX_SESSION_WAITERS_PER_PEER calls per
+    # identity may be waiting at once, so stale/forged ids cannot fill the --max-peer-concurrency budget.
+    START_GRACE_S = 3.0
+    DEADLINE_MARGIN_S = 0.2
+    MAX_SESSION_WAITERS_PER_PEER = 2
+
     def session_for(self, sid: str, context, claimed: str | None = None, method: str = "") -> ActiveSession:
-        """RPCs may arrive slightly before this node has processed START, so wait a little."""
-        deadline = time.time() + 10
+        s = self.sess
+        if s is not None and s.id == sid and not s.closed:
+            return s                                            # hot path: every Exchange of a live session
+
+        def refuse(why: str, code=grpc.StatusCode.FAILED_PRECONDITION, kind="unknown_session"):
+            reject(context, code, f"active party has no session {sid!r} ({why})", kind, "protocol",
+                   "session id check", claimed, sid, method)
+
+        try:
+            check_session_id(sid)
+        except (ValueError, TypeError):
+            reject(context, grpc.StatusCode.INVALID_ARGUMENT, "malformed session id", "bad_session_id",
+                   "protocol", "session id check", claimed, None, method)
+        if (s is not None and s.id == sid) or any(h.get("session_id") == sid for h in self.history):
+            refuse("it has already ended")
+        th = self._session_thread
+        running = th is not None and th.is_alive()
+        if running and self.session_id != sid:
+            refuse("a different session is running")
+
+        budget = self.START_GRACE_S
+        try:
+            left = context.time_remaining()
+        except Exception:
+            left = None
+        if left is not None:
+            budget = min(budget, left - self.DEADLINE_MARGIN_S)
+        if budget <= 0:
+            refuse("not started here, and no time left to wait for START")
+
+        key = peer_identity(context) or peer_ip(context) or "?"
         with self.sess_cv:
-            while not (self.sess and self.sess.id == sid):
-                left = deadline - time.time()
-                if left <= 0:
-                    reject(context, grpc.StatusCode.FAILED_PRECONDITION, f"active party has no session {sid!r}",
-                           "unknown_session", "protocol", "session id check", claimed, sid, method)
-                self.sess_cv.wait(min(left, 0.5))
-            return self.sess
+            if self._sess_waiters[key] >= self.MAX_SESSION_WAITERS_PER_PEER:
+                refuse("too many calls from this peer already waiting for a session")
+            self._sess_waiters[key] += 1
+        try:
+            end = time.time() + budget
+            # idle with a new id: has the coordinator got a START for us? (False = it could not be asked in time)
+            synced = (not running) and self.poll_coordinator(budget)
+            with self.sess_cv:
+                while True:
+                    s = self.sess
+                    if s is not None and s.id == sid and not s.closed:
+                        return s
+                    if self.session_id != sid and synced:
+                        refuse("the coordinator has not started it")
+                    if any(h.get("session_id") == sid for h in self.history):
+                        refuse("it has already ended")          # e.g. failed before it was published
+                    left = end - time.time()
+                    if left <= 0:
+                        refuse(f"START not received within {budget:.1f}s")
+                    self.sess_cv.wait(min(left, 0.1))
+        finally:
+            with self.sess_cv:
+                self._sess_waiters[key] -= 1
+                if self._sess_waiters[key] <= 0:
+                    del self._sess_waiters[key]
+
+    def _finish(self, sid, summary, t0):
+        s = self.sess
+        if s is not None and s.id == sid:
+            s.closed = True                    # late/stale RPCs for this id now fail fast (see session_for)
+            with s.cv:
+                s.cv.notify_all()
+            with self.sess_cv:
+                self.sess_cv.notify_all()
+        super()._finish(sid, summary, t0)
 
     def run_session(self, cfg: dict) -> dict:
         env = configure_torch(cfg.get("torch_threads", 1), cfg.get("deterministic", True))
