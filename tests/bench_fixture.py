@@ -29,7 +29,7 @@ def _metrics(rng, auc_level, n=120, k=2):
             "loss": float(0.7 - 0.4 * auc_level), "auroc": auc, "curves": curves(y, prob)}
 
 
-def make_bench(path: str, seeds=(1, 2, 3)) -> str:
+def make_bench(path: str, seeds=(1, 2, 3), repeats: int = 2) -> str:
     rng = np.random.default_rng(0)
     os.makedirs(os.path.join(path, "sessions"), exist_ok=True)
     os.makedirs(os.path.join(path, "security"), exist_ok=True)
@@ -122,7 +122,9 @@ def make_bench(path: str, seeds=(1, 2, 3)) -> str:
         json.dump(b, open(os.path.join(path, fn), "w"))
         manifest["baselines"].append({"seed": s, "file": fn})
         session("e1", f"c1-seed{s}", {"seed": s}, {"seed": s})
-    session("e1", "c1-repeat", {"seed": seeds[0]}, {"seed": seeds[0], "repeat": True})
+    for k in range(1, max(1, repeats)):      # repeats = runs of seeds[0] in total (2 = the pre-fix single repeat)
+        session("e1", "c1-repeat" + (f"{k}" if k > 1 else ""), {"seed": seeds[0]},
+                {"seed": seeds[0], "repeat": True, "repeat_index": k})
     for bs in (32, 128):
         for rtt in (0.0, 50.0):
             session("e2", f"bs{bs}-rtt{rtt:g}", {"batch_size": bs}, {"batch_size": bs, "rtt_ms": rtt, "seed": 1}, bs=bs, rtt=rtt, epochs=2)

@@ -198,13 +198,13 @@ not attempted); they are not repeated here because benchmarking continues after 
 | ID | Target | Produced by |
 |---|---|---|
 | NFR-1 Utility | VFL test AUROC within 5 pp of centralized, same aligned entities, 3 seeds | E1 |
-| NFR-2 Reproducibility | same seed → identical aligned order and step count; final-loss variation reported | E1 same-seed repeat; `run_summary.json` records versions and determinism settings |
+| NFR-2 Reproducibility | same seed → identical aligned order and step count; final-loss variation across three repetitions reported | E1: 3 runs of the first seed (`--repeats`, default 3; fewer is reported as `partial`); across-seed CV labelled with the seeds actually run; `run_summary.json` records versions and determinism settings |
 | NFR-3 Latency | median epoch time and p50/p95 batch time at RTT 0/20/50/100 ms | E2 through `netem_proxy` |
 | NFR-4 Communication | tensor, serialized and wire bytes separately, per epoch and per entity | E2; codec byte accounting + relay wire counts |
 | NFR-5 Throughput | ≥ 5 committed batches/s on LAN without delay, or achieved value and bottleneck | E2 |
 | NFR-6 Efficiency | CPU/memory per node; fp16 vs fp32 with paired seeds | `eff` suite; `resources.jsonl` |
 | NFR-7 Transport and logging | 100/100 invalid certificates refused; zero sentinel values in logs | `bench/security_test.py` |
-| NFR-8 Privacy evaluation | defence parameters, adjacency, accountant, attack metric, utility, overhead; PSI disclosure, time, bytes [5, 11, 12] | `def` and `psi` suites |
+| NFR-8 Privacy evaluation | defence parameters, adjacency, sensitivity and composition per reported ε, accountant, attack metric, utility, overhead; PSI disclosure, time, bytes [5, 11, 12] | `def` and `psi` suites; `privacy` block of each run's summary; "NFR-8 privacy accounting" table in the report |
 | NFR-9 Cloud cost | VM time, storage, egress with a price snapshot; cost per 1,000 entities and per epoch | `bench/analyze.py --cost configs/cloud_cost.example.yaml` (conditional on a cloud run) |
 | NFR-10 Fault handling | duplicate + 2 s delay; no duplicate step; checkpoint recovery time | E5 |
 
@@ -257,6 +257,20 @@ output policy [8, 5].
   post-processing [11]. Validation/test metrics use true labels and are outside that scope.
 * **Gradient noise** (`grad_noise`): per-row clip `C` and Gaussian noise `σ·C` on `∂L/∂H`, accounted with RDP for the
   gradient channel (also reported for colluding passives). Reported as perturbation, not an end-to-end guarantee [11, 12].
+  The channel ε rests on these assumptions, each written into the `grad_channel` block of the run summary:
+  * protected information and adjacency: as for randomized response, neighbouring datasets differ in the training
+    label of one aligned entity (`adjacency`);
+  * L2 sensitivity `2C`: changing that label can move the entity's clipped row from `g` to `g'` with both norms ≤ `C`,
+    and no other row depends on it, so the noise std `σ·C` gives an effective noise multiplier `z = σ/2`
+    (`sensitivity`, `noise_std`, `effective_noise_multiplier`);
+  * composition: every entity is in exactly one batch per epoch (`data.epoch_batches`) and its noisy row is sent once
+    to each passive party, so ε composes over `E` completed epochs, or `E × n_passive` releases if the passive parties
+    collude; no amplification by subsampling is assumed (`composition`);
+  * accountant: RDP of the Gaussian mechanism, `E·α/(2z²)`, converted with Balle et al. 2020 at the reported
+    `delta` and best `rdp_order`.
+
+  Example: `C = 0.05`, `σ = 1`, 5 epochs → `z = 0.5`, RDP at α = 2 is `5·2/(2·0.25) = 20`, ε = 20 + ln(1/2) −
+  (ln 10⁻⁵ + ln 2)/1 ≈ 30.13 at δ = 10⁻⁵.
 * Both are evaluated with the norm and cosine label-leakage attack AUC on the gradients actually sent, with utility
   and overhead on paired seeds, following the privacy-utility evaluation of [5] and the label-leakage threat
   of [6].

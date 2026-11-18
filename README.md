@@ -489,7 +489,7 @@ make bench                                  # full plan: E1, E2, NFR-6, FR-13, F
 
 1. `bench/run_benchmarks.py` — launches a local deployment (separate processes, mTLS) and runs
    * **E1** B0 centralized, B1 active-only, local VFL and networked C1 over seeds 1–3, plus a
-     same-seed repeat (NFR-1, NFR-2);
+     two more runs of seed 1, so NFR-2 sees three same-seed repetitions (`--repeats`, NFR-1, NFR-2);
    * **E2** RTT ∈ {0, 20, 50, 100} ms × batch ∈ {32, 64, 128} through a delay relay that also
      counts wire bytes (NFR-3, NFR-4, NFR-5);
    * **eff** fp16 vs fp32 paired seeds (NFR-6); **def** defence off / σ ∈ {0.5, 1, 2} with
