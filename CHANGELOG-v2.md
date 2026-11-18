@@ -198,3 +198,9 @@ Every fix has a regression test in `tests/test_redteam.py`.
   (`check_unique_ids`). Manifests record `params.id_scheme: sha256-128`. Data prepared with `--id-style hash`
   gets new id strings, so the aligned order and the seeded split change: re-run `prepare-data` before comparing
   with earlier results. Party files prepared by v2.3.1 still load. Details: `docs/fixes/ISSUE-2-entity-ids.md`.
+- **Sessions interrupted by a coordinator restart (issue #13).** On start-up the coordinator now closes every
+  session that its index still lists as live: `STOPPING` becomes `STOPPED`, any other live state becomes `FAILED`
+  with the reason "interrupted: the coordinator restarted while this session was live". The index and
+  `runs/<sid>/summary.json` keep the real completed-epoch count, so `resume_from` still works. `stop` on a session
+  from before the restart returns it with a "session already ended" note instead of "unknown session". Malformed
+  index entries are skipped instead of breaking later index writes. Details: `docs/fixes/ISSUE-13-coordinator-restart.md`.

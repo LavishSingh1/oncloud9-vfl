@@ -31,6 +31,8 @@ log = logging.getLogger("vfl.coordinator")
 ALIVE_S = 15.0
 FINAL_GRACE_S = 30.0
 ROLES = ("active", "passive")
+TERMINAL_STATES = ("COMPLETED", "FAILED", "STOPPED")     # what `vfl.cli wait` and bench/harness.py treat as final
+INTERRUPTED_REASON = "interrupted: the coordinator restarted while this session was live"
 
 
 class Session:
@@ -132,6 +134,7 @@ class CoordinatorState:
         self.monitor = ResourceMonitor(interval=2.0).start()
         self.index_path = os.path.join(run_dir, "sessions_index.json")
         self.history = self._load_index()
+        self.recovered = self._recover_interrupted_sessions()
         self.registry = None          # enrollment.IdentityRegistry in pki mode
         self.lab_mode = False
         self.lab = None               # attacks.LabRunner when --lab-mode
@@ -144,9 +147,70 @@ class CoordinatorState:
     def _load_index(self) -> list[dict]:
         try:
             with open(self.index_path) as fh:
-                return json.load(fh)
+                data = json.load(fh)
         except Exception:
             return []
+        # keep only well-formed entries, so one corrupt line cannot break every later index write
+        return [h for h in data if isinstance(h, dict) and isinstance(h.get("session_id"), str)] \
+            if isinstance(data, list) else []
+
+    def _recover_interrupted_sessions(self) -> list[str]:
+        """Close sessions that were live when the previous coordinator process stopped (issue #13).
+
+        Such a session has no in-memory Session any more and its parties have lost their coordinator, so it can never
+        finish. Mark it terminal in the index and in its summary.json, keeping its real completed-epoch count so that
+        `resume_from` keeps working. A session that was STOPPING becomes STOPPED; any other live state becomes FAILED.
+        If summary.json already holds a terminal state (the process died between writing summary.json and the
+        index), the index is brought in line with it instead.
+        """
+        fixed = []
+        for h in self.history:
+            if not isinstance(h, dict) or h.get("state") in TERMINAL_STATES:
+                continue
+            sid = str(h.get("session_id", ""))
+            try:
+                check_session_id(sid)
+            except ValueError:
+                continue
+            path = os.path.join(self.run_dir, sid, "summary.json")
+            try:
+                with open(path) as fh:
+                    summ = json.load(fh)
+                summ = summ if isinstance(summ, dict) else None
+            except (OSError, ValueError):
+                summ = None
+            now, was = time.time(), h.get("state")
+            if summ is not None and summ.get("state") in TERMINAL_STATES:
+                state, reason, done = summ["state"], summ.get("stop_reason") or "", summ.get("completed_epochs")
+            else:
+                state = "STOPPED" if h.get("state") == "STOPPING" else "FAILED"
+                reason = INTERRUPTED_REASON
+                done = (summ or {}).get("completed_epochs", h.get("completed_epochs"))
+                if summ is not None:
+                    summ.update(state=state, stop_reason=reason, finished=summ.get("finished") or now)
+                    summ.setdefault("errors", []).append({"t": now, "reason": reason})
+                    summ.setdefault("events", []).append({"t": now, "time": now_iso(), "kind": "session",
+                                                          "msg": reason})
+                    tmp = path + ".tmp"
+                    with open(tmp, "w") as fh:
+                        json.dump(summ, fh, indent=2, default=str)
+                    os.replace(tmp, path)
+            try:
+                done = max(0, int(done or 0))
+            except (TypeError, ValueError):
+                done = 0
+            last = ((summ or {}).get("epoch_metrics") or [{}])[-1] or {}
+            h.update(state=state, completed_epochs=done, stop_reason=reason,
+                     finished=h.get("finished") or (summ or {}).get("finished") or now,
+                     last_test_auroc=(last.get("test") or {}).get("auroc", h.get("last_test_auroc")))
+            if state != "COMPLETED" and reason:
+                h["errors"] = list(h.get("errors") or [])[-2:] + [{"t": now, "reason": reason}]
+            fixed.append(sid)
+            log.warning("session %s was %s when the coordinator stopped; marked %s (%d epochs completed)",
+                        sid, was, state, done)
+        if fixed:
+            self._save_index()
+        return fixed
 
     def _save_index(self):
         known = {h["session_id"]: h for h in self.history}
@@ -322,7 +386,11 @@ class CoordinatorState:
         with self.cv:
             s = self.sessions.get(sid)
             if not s:
-                raise ValueError(f"unknown session {sid}")
+                old = next((h for h in self.history if isinstance(h, dict) and h.get("session_id") == sid), None)
+                if old is None:
+                    raise ValueError(f"unknown session {sid}")
+                # a session from before this coordinator process: it has already ended, so stopping it is a no-op
+                return {**old, "note": f"session already ended ({old.get('state')}); nothing to stop"}
             if s.state in ("STARTING", "RUNNING"):
                 s.stop_requested = True
                 s.stop_time = time.time()

@@ -109,10 +109,12 @@ CHANGELOG-v2.md
 CONTRIBUTORS.md
 proto/vfl.proto
 scripts/gen_proto.sh
+scripts/verify_coordinator_restart.sh
 tests/conftest.py
 tests/fake_node.py
 tests/test_codec.py
 tests/test_coordinator.py
+tests/test_coordinator_restart.py
 tests/test_integration.py
 vfl/__init__.py
 vfl/active.py
