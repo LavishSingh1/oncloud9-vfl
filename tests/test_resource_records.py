@@ -128,7 +128,11 @@ def test_per_session_resource_records_end_to_end(tmp_path, data_dir):
             assert len(ep) == 3 and all(r["session"] == sid for r in ep)                       # was no key
             agg = d["finals"][party]["resources"]
             assert agg["scope"] == "session" and agg["n_samples"] == len(res)
-            assert agg["n_samples"] <= d["finals"][party]["session_wall_s"] / 1.0 + 3          # not process uptime
+            # not process uptime: the window starts with the session, so it excludes the 6 s idle above. Compare the
+            # sample count with the window itself, not session_wall_s: the window also covers the final telemetry
+            # flush and the closing sample, which happen after session_wall_s is stamped (party_base._finish).
+            assert agg["window_s"] < d["finals"][party]["session_wall_s"] + 5
+            assert agg["n_samples"] <= agg["window_s"] / agg["interval_s"] + 3
             run_summary = json.load(open(sdir / "run_summary.json"))
             assert run_summary["resources"]["scope"] == "session"
         cres = _rows(work / "runs" / sid / "resources_coordinator.jsonl")                      # was never saved
