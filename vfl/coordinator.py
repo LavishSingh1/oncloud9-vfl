@@ -519,6 +519,14 @@ class CoordinatorState:
                     e = int(payload.get("epoch", -1))
                 except (TypeError, ValueError):
                     return pb.ReportReply(ok=False, error="bad epoch")
+                # issue #16: a party reports each epoch of the session once. Unbounded epoch numbers or repeats
+                # let one participant grow party_epochs / epoch_done / epochs.jsonl without limit, so out-of-range
+                # epochs are refused and a repeat (e.g. an RPC retry) is acknowledged without storing anything.
+                n_epochs = int(s.config.get("epochs") or 0)
+                if not 0 <= e < n_epochs:
+                    return pb.ReportReply(ok=False, error=f"epoch {e} is outside this session (0..{n_epochs - 1})")
+                if req.party_id in s.epoch_done.get(e, ()):
+                    return pb.ReportReply(ok=True)
                 if not is_active:
                     # utility, leakage and privacy figures are the label owner's to report. v2.2 appended a
                     # passive's val/test/leakage keys to the session results, so any passive could forge the
