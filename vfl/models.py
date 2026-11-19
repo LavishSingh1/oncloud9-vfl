@@ -22,12 +22,16 @@ model are the same whatever each party uses.
 from __future__ import annotations
 
 import hashlib
+import logging
+import os
 
 import numpy as np
 import torch
 from torch import nn
 
-from .config_schema import BOTTOM_MODELS  # single source of truth (torch-free)
+from .config_schema import BOTTOM_MODELS, MAX_TORCH_THREADS  # single source of truth (torch-free)
+
+log = logging.getLogger("vfl.models")
 SHAPED = {"cnn": 3, "cnn1d": 2, "gru": 2}            # model -> required len(shape)
 
 
@@ -37,9 +41,28 @@ def party_seed(seed: int, party_id: str) -> int:
     return (seed * 1_000_003 + h) % (2 ** 31)
 
 
+def available_cpus() -> int:
+    """CPUs this process may run on (respects taskset/cpuset limits, unlike os.cpu_count())."""
+    try:
+        return max(1, len(os.sched_getaffinity(0)))
+    except (AttributeError, OSError):
+        return max(1, os.cpu_count() or 1)
+
+
+def thread_count(requested) -> int:
+    """`torch_threads` capped at this machine's CPUs and the schema maximum. v2.3.1 passed the value straight to
+    torch.set_num_threads: 10^6 returned normally and then segfaulted the first multi-threaded op (exit 139, no log),
+    and anything above the CPU count only oversubscribes."""
+    return max(1, min(int(requested), available_cpus(), MAX_TORCH_THREADS))
+
+
 def configure_torch(threads: int = 1, deterministic: bool = True) -> dict:
-    """Fixed thread count + deterministic kernels so CPU runs are repeatable (v2 item 6)."""
-    torch.set_num_threads(max(1, int(threads)))
+    """Fixed thread count + deterministic kernels so CPU runs are repeatable (v2 item 6). The thread count actually
+    used (after `thread_count`) is in the returned dict, which every party records in its run summary."""
+    n = thread_count(threads)
+    if n != int(threads):
+        log.warning("torch_threads=%s capped to %d (%d CPUs available)", threads, n, available_cpus())
+    torch.set_num_threads(n)
     try:                                   # may only be set once per process
         torch.set_num_interop_threads(1)
     except Exception:

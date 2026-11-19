@@ -656,8 +656,9 @@ class CoordinatorState:
 
 def check_data_consistency(cfg: dict, parties: list[dict]):
     """Refuse a session whose parties hold data from different prepare-data runs, or whose data does
-    not match the session's `partition` / `overlap` / `binarize` expectations. Uses only the split
-    metadata in each party's own manifest (no data, no column names)."""
+    not match the session's `partition` / `overlap` / `binarize` expectations, or whose models would be too large
+    for a party (vfl/model_budget.py). Uses only the split metadata and counts in each party's own manifest (no
+    data, no column names)."""
     parts = {p["party_id"]: (p.get("summary") or {}).get("partition") for p in parties}
     with_m = {pid: m for pid, m in parts.items() if m}
     hashes = {m.get("manifest_sha256") for m in with_m.values()}
@@ -694,6 +695,22 @@ def check_data_consistency(cfg: dict, parties: list[dict]):
         if kind in SHAPED and (not shape or len(shape) != SHAPED[kind]):
             raise ValueError(f"{p['party_id']} uses bottom_model {kind!r}, which needs a {SHAPED[kind]}-D input "
                              f"shape, but its data manifest has shape={shape}")
+    # every party's models must fit: the schema bounds each key, this bounds their combination over the party's real
+    # input width (red-team issue: oversized model sizes were accepted and every party allocated until OOM-killed)
+    from . import model_budget
+    n_passive = sum(1 for p in parties if p.get("role") == "passive")
+    k_labels = next((m.get("num_classes") for m in with_m.values() if m.get("num_classes") is not None), None)
+    for p in parties:
+        summ = p.get("summary") or {}
+        model_budget.check_party(p["party_id"], resolve_bottom_kind(cfg, p["party_id"]), cfg,
+                                 n_features=_pos_int(summ.get("n_features")), shape=summ.get("shape"),
+                                 rows=_pos_int(summ.get("rows")), role=p.get("role", "passive"), n_passive=n_passive,
+                                 num_classes=cfg.get("num_classes") or _pos_int(k_labels))
+
+
+def _pos_int(v) -> int | None:
+    """A positive int from a party-reported summary field, else None (field missing or malformed: skip that part)."""
+    return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else None
 
 
 SECURITY_FIELDS = ("attack_type", "layer", "outcome", "defence", "source_ip", "claimed_identity", "cert_identity",

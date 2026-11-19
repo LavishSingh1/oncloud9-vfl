@@ -204,3 +204,13 @@ Every fix has a regression test in `tests/test_redteam.py`.
   `runs/<sid>/summary.json` keep the real completed-epoch count, so `resume_from` still works. `stop` on a session
   from before the restart returns it with a "session already ended" note instead of "unknown session". Malformed
   index entries are skipped instead of breaking later index writes. Details: `docs/fixes/ISSUE-13-coordinator-restart.md`.
+- **Oversized model sizes in the session config (issue #11).** `hidden_dim`, `top_hidden`, `text_hidden` (<= 8192),
+  `embed_dim` (<= 4096), `gru_hidden` (<= 4096), each `cnn_channels` entry (<= 1024), `cnn_kernel`/`cnn1d_kernel`
+  (<= 31), `num_classes` (<= 1000) and `torch_threads` (<= 256) now have a schema maximum, so `--set`, the form and
+  `POST /api/sessions` refuse a larger value with HTTP 400 naming the field and the limit. A new torch-free size check
+  (`vfl/model_budget.py`) refuses, at session start and again at each party before it allocates, a combination of
+  valid values that is still too big for a party's real input width (parameters, one batch's activations, or a
+  `[batch x embed_dim]` tensor above the gRPC message limit), naming the keys to reduce. Each party caps
+  `torch_threads` at its CPU count (10^6 used to segfault PyTorch). A STOP that arrives while a party builds its model
+  is honoured as soon as the model exists. Every preset and PRD configuration is unaffected.
+  Details: `docs/fixes/ISSUE-11-model-size-bounds.md`.

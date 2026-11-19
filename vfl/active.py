@@ -608,6 +608,8 @@ class ActiveNode(PartyNode):
         s.splits = splits
         s.evals = eval_batches(splits, cfg["eval_batch_size"])
         s.core = ActiveCore(cfg, X, y, self.party_id, s.passive_ids, shape=self.data.shape, scaler=scaler)
+        if self.stop_event.is_set():                     # STOP that arrived while the model was being built
+            raise StopRequested()
         log.info("bottom model %s (%d params incl. top), %d classes (%s)%s", s.core.kind, s.core.n_params,
                  s.core.num_classes, "BCE" if s.core.binary else "cross-entropy",
                  f", label RR flips {s.core.label_flip_rate:.1%} of labels" if s.core.label_flip_rate else "")

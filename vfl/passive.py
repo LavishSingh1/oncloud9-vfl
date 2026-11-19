@@ -157,6 +157,8 @@ class PassiveNode(PartyNode):
         log.info("aligned %d of %d local rows via %s (%s)", res.n_aligned, len(self.data.ids), res.mode,
                  "private" if res.private else "NON-PRIVATE experimental")
         self.core = core = PassiveCore(cfg, X, self.party_id, shape=self.data.shape, scaler=scaler)
+        if self.stop_event.is_set():                     # STOP that arrived while the model was being built
+            raise StopRequested()
         log.info("bottom model %s (%d params)", core.kind, core.n_params)
         self.guard = guard.guard_config(cfg)                 # v2.3: defences against a malicious active party
         self.gmon = guard.GradientMonitor() if self.guard["grad_monitor"] != "off" else None

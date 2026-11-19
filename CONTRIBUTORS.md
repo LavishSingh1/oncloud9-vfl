@@ -77,6 +77,7 @@ docs/images/session_lifecycle.png
 docs/images/training_sequence.png
 tests/config_scan.py
 tests/test_config_schema.py
+tests/test_config_size_bounds.py
 tests/test_core.py
 tests/test_data.py
 tests/test_dataprep.py
@@ -92,6 +93,7 @@ vfl/data.py
 vfl/datasets.py
 vfl/local_sim.py
 vfl/metrics_curves.py
+vfl/model_budget.py
 vfl/models.py
 vfl/partition.py
 vfl/webui/dataprep.py
