@@ -1,7 +1,10 @@
 # Containerised deployment on one host (separate containers = separate processes/network
 # namespaces). For real multi-machine runs, start each service on its own machine instead.
 #   docker compose -f docker/docker-compose.yml up --build
-#   then open http://localhost:8080 and start a session.
+# Dashboards listen on 0.0.0.0, so each one needs its UI token for every view (see README 7a). Without
+# --ui-token one is generated at start-up; read the coordinator's with
+#   docker compose -f docker/docker-compose.yml exec coordinator cat /var/lib/vfl/logs/coordinator/ui_token
+# then open http://localhost:8080/?token=<token> and start a session.
 #
 # Isolation model (same as the multi-machine bundles):
 #   * `setup` is the only container that ever sees ca.key. It keeps the CA and the full data report
