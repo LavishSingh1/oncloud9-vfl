@@ -396,10 +396,13 @@ def analyse_eff(B, R, figdir):
     # resources from the utility runs
     res = []
     for e, d in B.suite("e1")[:1]:
-        for pid, fr in d.get("finals", {}).items():
-            r = fr.get("resources") or {}
+        nodes = [(pid, fr.get("resources") or {}) for pid, fr in d.get("finals", {}).items()]
+        if d.get("coordinator_resources"):                  # issue #20: NFR-6 asks for the coordinator too
+            nodes.append(("coordinator", d["coordinator_resources"]))
+        for pid, r in nodes:
+            scope = "" if r.get("scope") == "session" else " (process lifetime)"   # pre-#20 results
             res.append(f"{pid}: CPU avg {f(r.get('cpu_avg_percent'), 1)}% / max {f(r.get('cpu_max_percent'), 1)}%, "
-                       f"RSS max {f(r.get('rss_max_mib'), 0)} MiB")
+                       f"RSS max {f(r.get('rss_max_mib'), 0)} MiB{scope}")
     if pairs:
         red = mean([(1 - b["app"] / a["app"]) * 100 for _, a, b in pairs])
         dau = mean([(b["auroc"] - a["auroc"]) * 100 for _, a, b in pairs])

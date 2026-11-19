@@ -202,7 +202,7 @@ not attempted); they are not repeated here because benchmarking continues after 
 | NFR-3 Latency | median epoch time and p50/p95 batch time at RTT 0/20/50/100 ms | E2 through `netem_proxy` |
 | NFR-4 Communication | tensor, serialized and wire bytes separately, per epoch and per entity | E2; codec byte accounting + relay wire counts |
 | NFR-5 Throughput | ≥ 5 committed batches/s on LAN without delay, or achieved value and bottleneck | E2 |
-| NFR-6 Efficiency | CPU/memory per node; fp16 vs fp32 with paired seeds | `eff` suite; `resources.jsonl` |
+| NFR-6 Efficiency | CPU/memory per node (coordinator and parties); fp16 vs fp32 with paired seeds | `eff` suite; per-session `logs/<party>/<session>/resources.jsonl` and `runs/<session>/resources_coordinator.jsonl`; session aggregates in `run_summary.json` / `summary.json` |
 | NFR-7 Transport and logging | 100/100 invalid certificates refused; zero sentinel values in logs | `bench/security_test.py` |
 | NFR-8 Privacy evaluation | defence parameters, adjacency, sensitivity and composition per reported ε, accountant, attack metric, utility, overhead; PSI disclosure, time, bytes [5, 11, 12] | `def` and `psi` suites; `privacy` block of each run's summary; "NFR-8 privacy accounting" table in the report |
 | NFR-9 Cloud cost | VM time, storage, egress with a price snapshot; cost per 1,000 entities and per epoch | `bench/analyze.py --cost configs/cloud_cost.example.yaml` (conditional on a cloud run) |
