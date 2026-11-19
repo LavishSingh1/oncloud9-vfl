@@ -2,43 +2,92 @@
 # namespaces). For real multi-machine runs, start each service on its own machine instead.
 #   docker compose -f docker/docker-compose.yml up --build
 #   then open http://localhost:8080 and start a session.
+#
+# Isolation model (same as the multi-machine bundles):
+#   * `setup` is the only container that ever sees ca.key. It keeps the CA and the full data report
+#     in the `pki` volume and hands each node ONLY its own material:
+#       coordinator -> ca.crt, coordinator.crt/.key
+#       active      -> ca.crt, active.crt/.key,    active.csv    + active.manifest.json
+#       passive-1   -> ca.crt, passive-1.crt/.key, passive-1.csv + passive-1.manifest.json
+#   * every node has its own volume (certs, data, logs, runs/checkpoints); no volume is shared
+#     between two nodes, so a compromised party cannot read the CA key, another node's private key,
+#     another party's features or the labels, or plant a checkpoint for another node.
+#   * all containers run as the unprivileged uid 10001 with no capabilities.
+#
+# Upgrading from the old single `shared` volume (which held ca.key and every node's files):
+#   docker compose -f docker/docker-compose.yml down -v     # removes it; certs/data are regenerated
+#
+# More passives: add passive-N to NODES / PARTIES in `setup`, a passive-N service and a
+# passive-N-state volume (the image pre-creates mount points for passive-1..8).
 x-vfl: &vfl
   build: {context: .., dockerfile: docker/Dockerfile}
   image: oncloud9/vfl:latest
-  volumes:
-    - shared:/shared
+  user: "10001:10001"
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
 
 services:
-  setup:            # one-shot: certificates + per-party data
+  setup:            # one-shot: CA + certificates + per-party data, then per-node distribution
     <<: *vfl
+    environment:
+      NODES: "coordinator active passive-1"
+      PARTIES: "active passive-1"
+    volumes:
+      - pki:/var/lib/vfl-setup/pki
+      - coordinator-state:/var/lib/vfl-setup/nodes/coordinator
+      - active-state:/var/lib/vfl-setup/nodes/active
+      - passive-1-state:/var/lib/vfl-setup/nodes/passive-1
     entrypoint: ["sh", "-c"]
     command:
-      - >-
-        [ -f /shared/certs/ca.crt ] || python -m vfl.cli certs --out /shared/certs --passives 1 &&
-        [ -f /shared/data/active.csv ] || python -m vfl.cli prepare-data --dataset breast_cancer --out /shared/data
+      - |
+        set -eu
+        umask 077
+        PKI=/var/lib/vfl-setup/pki
+        OUT=/var/lib/vfl-setup/nodes
+        n_passive=$$(( $$(echo $$PARTIES | wc -w) - 1 ))
+        [ -f $$PKI/certs/ca.crt ] || python -m vfl.cli certs --out $$PKI/certs --passives $$n_passive
+        [ -f $$PKI/data/active.csv ] || python -m vfl.cli prepare-data --dataset breast_cancer \
+            --passives $$n_passive --out $$PKI/data
+        for n in $$NODES; do
+          mkdir -p $$OUT/$$n/certs
+          cp $$PKI/certs/ca.crt $$PKI/certs/$$n.crt $$PKI/certs/$$n.key $$OUT/$$n/certs/
+        done
+        for n in $$PARTIES; do
+          mkdir -p $$OUT/$$n/data
+          cp $$PKI/data/$$n.csv $$OUT/$$n/data/
+          [ ! -f $$PKI/data/$$n.manifest.json ] || cp $$PKI/data/$$n.manifest.json $$OUT/$$n/data/
+        done
+        echo "setup: distributed per-node certificates and data; ca.key stays in the pki volume"
 
   coordinator:
     <<: *vfl
     depends_on: {setup: {condition: service_completed_successfully}}
-    command: [coordinator, --tls-dir, /shared/certs, --run-dir, /shared/runs, --log-dir, /shared/logs,
-              --ui-host, 0.0.0.0, --ui-port, "8080"]
+    volumes: ["coordinator-state:/var/lib/vfl"]
+    command: [coordinator, --tls-dir, /var/lib/vfl/certs, --run-dir, /var/lib/vfl/runs,
+              --log-dir, /var/lib/vfl/logs, --ui-host, 0.0.0.0, --ui-port, "8080"]
     ports: ["8080:8080"]
 
   active:
     <<: *vfl
     depends_on: [coordinator]
-    command: [active, --data, /shared/data/active.csv, --coordinator, coordinator:50050,
-              --listen, 0.0.0.0:50051, --advertise, active:50051, --tls-dir, /shared/certs,
-              --ui-host, 0.0.0.0, --ui-port, "8081", --log-dir, /shared/logs, --ckpt-dir, /shared/checkpoints]
+    volumes: ["active-state:/var/lib/vfl"]
+    command: [active, --data, /var/lib/vfl/data/active.csv, --coordinator, coordinator:50050,
+              --listen, 0.0.0.0:50051, --advertise, active:50051, --tls-dir, /var/lib/vfl/certs,
+              --ui-host, 0.0.0.0, --ui-port, "8081", --log-dir, /var/lib/vfl/logs,
+              --ckpt-dir, /var/lib/vfl/checkpoints]
     ports: ["8081:8081"]
 
   passive-1:
     <<: *vfl
     depends_on: [active]
-    command: [passive, --id, passive-1, --data, /shared/data/passive-1.csv, --coordinator, coordinator:50050,
-              --tls-dir, /shared/certs, --ui-host, 0.0.0.0, --ui-port, "8082", --log-dir, /shared/logs,
-              --ckpt-dir, /shared/checkpoints]
+    volumes: ["passive-1-state:/var/lib/vfl"]
+    command: [passive, --id, passive-1, --data, /var/lib/vfl/data/passive-1.csv, --coordinator, coordinator:50050,
+              --tls-dir, /var/lib/vfl/certs, --ui-host, 0.0.0.0, --ui-port, "8082",
+              --log-dir, /var/lib/vfl/logs, --ckpt-dir, /var/lib/vfl/checkpoints]
     ports: ["8082:8082"]
 
 volumes:
-  shared:
+  pki:                # setup only: ca.key + every certificate + full data report
+  coordinator-state:
+  active-state:
+  passive-1-state:

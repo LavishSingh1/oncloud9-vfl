@@ -6,3 +6,12 @@ results
 certs
 data
 **/__pycache__
+# never bake secrets / local state into the image (unified UI workspace, keys, VCS)
+.git
+.venv
+datasets
+uploads
+deployments
+ui_users.json
+*.key
+*.pem
