@@ -1,11 +1,18 @@
 PY ?= python3
 PASSIVES ?= 1
 
-.PHONY: install proto data data-synthetic certs local stop status session test test-fast bench bench-quick security analyze clean config-docs ui attack bench-ui
+.PHONY: install install-locked pin-deps proto data data-synthetic certs local stop status session test test-fast bench bench-quick security analyze clean config-docs ui attack bench-ui
 
 install:            ## install dependencies (CPU PyTorch)
 	$(PY) -m pip install torch --index-url https://download.pytorch.org/whl/cpu
 	$(PY) -m pip install -r requirements.txt
+
+install-locked:     ## exact versions from requirements.lock (what the Docker image uses; Linux, Python 3.11)
+	$(PY) -m pip install torch --index-url https://download.pytorch.org/whl/cpu -c requirements.lock
+	$(PY) -m pip install -r requirements.txt -c requirements.lock
+
+pin-deps:           ## re-pin the Docker base image digest and regenerate requirements.lock (needs Docker)
+	sh scripts/pin_deps.sh
 
 proto:              ## regenerate gRPC stubs from proto/vfl.proto
 	bash scripts/gen_proto.sh
