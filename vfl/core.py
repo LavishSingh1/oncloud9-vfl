@@ -17,7 +17,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from . import defense
+from . import defense, model_budget
 from .data import PartyData, Standardizer, make_splits
 from .metrics_curves import curves
 from .models import TopModel, make_bottom, make_optimizer, n_params, output_dim, party_seed, resolve_bottom_kind
@@ -130,6 +130,10 @@ class ActiveCore:
         self.passive_ids = sorted(passive_ids)
         self.kind = resolve_bottom_kind(cfg, party_id)
         self.scaler = scaler
+        # refuse a model this party cannot hold BEFORE allocating it (red-team issue: oversized session config)
+        model_budget.check_party(party_id, self.kind, cfg, n_features=self.X.shape[1], shape=shape,
+                                 rows=len(self.X), role="active", n_passive=len(self.passive_ids),
+                                 num_classes=self.num_classes)
         torch.manual_seed(init_seed(cfg, party_id, passive=False))
         E = cfg["embed_dim"]
         self.bottom = make_bottom(self.kind, self.X.shape[1], shape, cfg)
@@ -250,6 +254,8 @@ class PassiveCore:
         self.kind = resolve_bottom_kind(cfg, party_id)
         self.scaler = scaler
         self.noise_secret = noise_secret(cfg)                 # for representation noise (never sent)
+        model_budget.check_party(party_id, self.kind, cfg, n_features=self.X.shape[1], shape=shape,
+                                 rows=len(self.X), role="passive")
         torch.manual_seed(init_seed(cfg, party_id, passive=True))
         self.bottom = make_bottom(self.kind, self.X.shape[1], shape, cfg)
         self.opt = make_optimizer(self.bottom.parameters(), cfg)

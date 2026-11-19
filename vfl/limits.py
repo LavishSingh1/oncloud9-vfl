@@ -5,6 +5,13 @@ far above anything the honest protocol needs, so they never change a correct run
 """
 from __future__ import annotations
 
+import os
+
+# Largest gRPC message (bytes). Big enough for PSI over ~1M ids; tune with VFL_GRPC_MAX_MSG_MB. vfl/transport.py
+# applies it to every channel and server; vfl/model_budget.py refuses a session whose [batch x embed_dim] tensor
+# would not fit (issue: oversized embed_dim failed mid-run with "EncodeError: Failed to serialize proto").
+MAX_GRPC_MSG = int(float(os.environ.get("VFL_GRPC_MAX_MSG_MB", "256")) * 1024 * 1024)
+
 # PSI: a party may submit at most this many blinded ids, relative to the active party's own set. Each item costs
 # every other party one 2048-bit modular exponentiation, so an unbounded set is a CPU denial of service, and in
 # two-party PSI it is also an unbounded membership oracle against the active party's ids.
