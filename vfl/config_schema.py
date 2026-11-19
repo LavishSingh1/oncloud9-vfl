@@ -181,7 +181,7 @@ PARAMS: tuple[Param, ...] = (
 
     # ------------------------------------------------------------------ network & timing
     _p("inject_rtt_ms", "float", 0.0, "network", "Application-level RTT emulated at passive parties.",
-       presets=(0.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0), min=0, unit="ms"),
+       presets=(0.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0), min=0, max=5000, unit="ms"),
     _p("rpc_deadline_s", "float", 30.0, "network", "Per-RPC deadline before a retry.",
        presets=(5.0, 10.0, 30.0, 60.0, 120.0, 300.0), min=0, min_exclusive=True, unit="s"),
     _p("max_retries", "int", 3, "network", "Retries per RPC on UNAVAILABLE / DEADLINE_EXCEEDED.",
@@ -243,7 +243,7 @@ PARAMS: tuple[Param, ...] = (
     _p("fault.delay", "pairs", [], "fault", "The active party delays its reply for these (epoch, batch) slots.",
        widget="pairs"),
     _p("fault.delay_s", "float", 2.0, "fault", "Length of each injected reply delay.",
-       presets=(0.5, 1.0, 2.0, 5.0, 10.0), min=0, unit="s"),
+       presets=(0.5, 1.0, 2.0, 5.0, 10.0), min=0, max=300, unit="s"),
 
     # ------------------------------------------------------------------ resume & data checks
     _p("resume_from", "str", None, "data", "Resume a past session from its last complete epoch.",

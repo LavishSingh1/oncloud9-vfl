@@ -335,13 +335,13 @@ class PassiveNode(PartyNode):
         tens = codec.encode_cfg(h, cfg)
         req = pb.ExchangeRequest(header=self._header(epoch, b, digest=batch_digest(idx)), activation=tens)
         t2 = time.perf_counter()
-        if rtt_half:
-            time.sleep(rtt_half)                       # emulated uplink propagation delay
+        if rtt_half and self.stop_event.wait(rtt_half):  # emulated uplink propagation delay; STOP cuts it short
+            raise StopRequested()
         t3 = time.perf_counter()
         rep, attempts, timeouts = self._call(stub.Exchange, req, cfg, f"exchange e{epoch} b{b}")
         t4 = time.perf_counter()
-        if rtt_half:
-            time.sleep(rtt_half)                       # emulated downlink propagation delay
+        if rtt_half and self.stop_event.wait(rtt_half):  # emulated downlink propagation delay; STOP cuts it short
+            raise StopRequested()
         t5 = time.perf_counter()
         if rep.dropped:
             # straggler policy: the active party committed this batch without us - no local update

@@ -400,7 +400,7 @@ class ActiveSession:
                 d = float(fault.get("delay_s", 2.0))
                 log.warning("FAULT INJECTION: delaying gradient reply for e%d b%d by %.2fs", epoch, b, d)
                 self.node.report("event", {"kind": "fault", "msg": f"injected {d:.2f}s reply delay at e{epoch} b{b}"})
-                time.sleep(d)
+                self.node.stop_event.wait(d)           # STOP cuts the injected delay short
                 delay_ms = d * 1000
             now = time.perf_counter()
             with self.cv:

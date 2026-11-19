@@ -275,7 +275,7 @@ check. Keys marked *new in v2.1* default to the previous behaviour.
 | `codec` | enum | `fp32` | `fp32`, `fp16`, `int8`, `topk` | all | Wire encoding of representations and gradients. |
 | `topk_fraction` | float (> 0, <= 1) | `0.25` | `0.05`, `0.1`, `0.25`, `0.5`, `0.75` | all; when codec = topk | top-k codec: fraction of entries kept per row. |
 | **Network & timing** | | | | | |
-| `inject_rtt_ms` | float (>= 0) | `0.0` | `0.0`, `5.0`, `10.0`, `20.0`, `50.0`, `100.0`, `200.0`, `500.0` | all | Application-level RTT emulated at passive parties. |
+| `inject_rtt_ms` | float (>= 0, <= 5000) | `0.0` | `0.0`, `5.0`, `10.0`, `20.0`, `50.0`, `100.0`, `200.0`, `500.0` | all | Application-level RTT emulated at passive parties. |
 | `rpc_deadline_s` | float (> 0) | `30.0` | `5.0`, `10.0`, `30.0`, `60.0`, `120.0`, `300.0` | all | Per-RPC deadline before a retry. |
 | `max_retries` | int (>= 0) | `3` | `0`, `1`, `2`, `3`, `5`, `10` | all | Retries per RPC on UNAVAILABLE / DEADLINE_EXCEEDED. |
 | `retry_backoff_s` | float (>= 0) | `0.2` | `0.05`, `0.1`, `0.2`, `0.5`, `1.0` | all | Linear back-off step between retries. |
@@ -297,7 +297,7 @@ check. Keys marked *new in v2.1* default to the previous behaviour.
 | **Fault injection** | | | | | |
 | `fault.duplicate` | list of [epoch, batch] | `[]` | epoch/batch rows | all | Passive parties re-send the message for these (epoch, batch) slots; the active party must not step twice. |
 | `fault.delay` | list of [epoch, batch] | `[]` | epoch/batch rows | all | The active party delays its reply for these (epoch, batch) slots. |
-| `fault.delay_s` | float (>= 0) | `2.0` | `0.5`, `1.0`, `2.0`, `5.0`, `10.0` | all | Length of each injected reply delay. |
+| `fault.delay_s` | float (>= 0, <= 300) | `2.0` | `0.5`, `1.0`, `2.0`, `5.0`, `10.0` | all | Length of each injected reply delay. |
 | **Resume & data checks** | | | | | |
 | `resume_from` | str or null | `null` | past sessions | all | Resume a past session from its last complete epoch. |
 | `partition` | str or null | `null` | `random`, `sequential`, `importance_balanced`, `importance_skewed`, `dirichlet`, `importance`, `correlated`, `manual`, `image_strips`, `image_grid`, `sensor_streams`, `multimodal` | all | Refuse to start unless every party's manifest reports this split strategy (empty = don't check). |
