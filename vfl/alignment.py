@@ -105,6 +105,17 @@ class ExperimentalAlignment:
         return AlignmentResult(rows, self.name, False, len(ids), EXPERIMENTAL_DISCLOSURE, digest)
 
 
+def canonical_order(res: AlignmentResult, ids: list[str], salt: str) -> AlignmentResult:
+    """Re-sort an alignment into the canonical order (salted id hash, as ExperimentalAlignment) and set
+    order_digest (issue #19). DH-PSI orders its intersection by values blinded with per-session secret keys, so
+    the same seed gave a different aligned order (and train/test split) in every session. Each party already
+    knows the ids of its own matched rows once PSI has finished, so sorting them locally by a salted hash adds no
+    message and discloses nothing new; every party computes the same order, identical to experimental mode."""
+    keyed = sorted((salted_hash(salt, ids[r]), r) for r in res.rows)
+    digest = hashlib.sha256(b"".join(h for h, _ in keyed)).hexdigest()[:16]
+    return AlignmentResult([r for _, r in keyed], res.mode, res.private, res.n_local, res.disclosure, digest)
+
+
 def align_locally(id_lists: list[list[str]], salt: str) -> list[AlignmentResult]:
     """Single-process alignment used by baselines/local simulation; same order as networked."""
     ad = ExperimentalAlignment(salt)

@@ -18,7 +18,7 @@ import numpy as np
 from . import codec, defense
 from . import psi_wire
 from .limits import check_slot, psi_item_cap
-from .alignment import DHPSIParty, ExperimentalAlignment, MultiPSIHub
+from .alignment import DHPSIParty, ExperimentalAlignment, MultiPSIHub, canonical_order
 from .config import alignment_salt
 from .core import ActiveCore, aligned_features, load_checkpoint, save_checkpoint, utility_metrics
 from .data import batch_digest, epoch_batches, eval_batches
@@ -600,6 +600,8 @@ class ActiveNode(PartyNode):
         if self.stop_event.is_set():
             raise StopRequested()
         res = s.align_result
+        if res.mode != ExperimentalAlignment.name:     # PSI: same canonical order at every party (#19)
+            res = s.align_result = canonical_order(res, self.data.ids, alignment_salt(cfg))
         align_ms = (time.time() - (s.align_t0 or t_setup)) * 1000
         if res.n_aligned < 10:
             raise ValueError(f"only {res.n_aligned} aligned entities; check ids/overlap")

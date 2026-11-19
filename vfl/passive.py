@@ -13,7 +13,7 @@ import numpy as np
 from . import codec
 from . import passive_guard as guard
 from . import psi_wire
-from .alignment import ROUND_WORK, DHPSIParty, ExperimentalAlignment, run_psi_member
+from .alignment import ROUND_WORK, DHPSIParty, ExperimentalAlignment, canonical_order, run_psi_member
 from .config import alignment_salt
 from .core import PassiveCore, aligned_features, load_checkpoint, save_checkpoint
 from .data import batch_digest, epoch_batches, eval_batches
@@ -114,6 +114,8 @@ class PassiveNode(PartyNode):
                 raise RuntimeError(f"PSI round 2 rejected: {rep2.error}")
             up, down = req1.ByteSize() + req2.ByteSize(), rep1.ByteSize() + rep2.ByteSize()
             log.info("DH-PSI local crypto %.1fs", time.time() - t_b)
+        if res.mode != ExperimentalAlignment.name:     # PSI: same canonical order at every party (#19)
+            res = canonical_order(res, ids, alignment_salt(cfg))
         self.counters["align_bytes_up"] += up
         self.counters["align_bytes_down"] += down
         rep = {**res.report(), "align_ms": (time.time() - t0) * 1000, "app_bytes_up": up, "app_bytes_down": down}
