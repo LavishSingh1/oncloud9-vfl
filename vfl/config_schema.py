@@ -180,7 +180,9 @@ PARAMS: tuple[Param, ...] = (
        presets=(0.05, 0.1, 0.25, 0.5, 0.75), min=0, max=1, min_exclusive=True, show_if=(("codec", ("topk",)),)),
 
     # ------------------------------------------------------------------ network & timing
-    _p("inject_rtt_ms", "float", 0.0, "network", "Application-level RTT emulated at passive parties.",
+    _p("inject_rtt_ms", "float", 0.0, "network",
+       "Application-level RTT emulated at passive parties. Benchmarking knob for NFR-3/E2 "
+       "(PRD sweep 0, 20, 50, 100 ms); supported range 0-500 ms.",
        presets=(0.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0), min=0, unit="ms"),
     _p("rpc_deadline_s", "float", 30.0, "network", "Per-RPC deadline before a retry.",
        presets=(5.0, 10.0, 30.0, 60.0, 120.0, 300.0), min=0, min_exclusive=True, unit="s"),

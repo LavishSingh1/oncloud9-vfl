@@ -39,7 +39,7 @@ Every key the training code reads. Set them in `configs/session.yaml`, with `pyt
 | `codec` | enum | `fp32` | `fp32`, `fp16`, `int8`, `topk` | all | Wire encoding of representations and gradients. |
 | `topk_fraction` | float (> 0, <= 1) | `0.25` | `0.05`, `0.1`, `0.25`, `0.5`, `0.75` | all; when codec = topk | top-k codec: fraction of entries kept per row. |
 | **Network & timing** | | | | | |
-| `inject_rtt_ms` | float (>= 0) | `0.0` | `0.0`, `5.0`, `10.0`, `20.0`, `50.0`, `100.0`, `200.0`, `500.0` | all | Application-level RTT emulated at passive parties. |
+| `inject_rtt_ms` | float (>= 0) | `0.0` | `0.0`, `5.0`, `10.0`, `20.0`, `50.0`, `100.0`, `200.0`, `500.0` | all | Application-level RTT emulated at passive parties. Benchmarking knob for NFR-3/E2 (PRD sweep 0, 20, 50, 100 ms); supported range 0-500 ms. |
 | `rpc_deadline_s` | float (> 0) | `30.0` | `5.0`, `10.0`, `30.0`, `60.0`, `120.0`, `300.0` | all | Per-RPC deadline before a retry. |
 | `max_retries` | int (>= 0) | `3` | `0`, `1`, `2`, `3`, `5`, `10` | all | Retries per RPC on UNAVAILABLE / DEADLINE_EXCEEDED. |
 | `retry_backoff_s` | float (>= 0) | `0.2` | `0.05`, `0.1`, `0.2`, `0.5`, `1.0` | all | Linear back-off step between retries. |
