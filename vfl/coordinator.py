@@ -31,6 +31,8 @@ log = logging.getLogger("vfl.coordinator")
 ALIVE_S = 15.0
 FINAL_GRACE_S = 30.0
 ROLES = ("active", "passive")
+TERMINAL_STATES = ("COMPLETED", "FAILED", "STOPPED")     # what `vfl.cli wait` and bench/harness.py treat as final
+INTERRUPTED_REASON = "interrupted: the coordinator restarted while this session was live"
 
 
 class Session:
@@ -59,6 +61,7 @@ class Session:
         self.events: list[dict] = []
         self.recent = collections.deque(maxlen=3000)
         self.batch_counts = collections.Counter()
+        self.coordinator_resources: dict | None = None   # issue #20: the coordinator's own CPU/RSS for this run
         self.dir = os.path.join(run_dir, sid)
         os.makedirs(self.dir, exist_ok=True)
         self._writers: dict[str, JsonlWriter] = {}
@@ -104,7 +107,8 @@ class Session:
                 "alignment": self.alignment, "epoch_metrics": self.epoch_metrics,
                 "party_epochs": dict(self.party_epochs), "finals": self.finals, "errors": self.errors,
                 "events": self.events, "batch_record_counts": dict(self.batch_counts),
-                "completed_epochs": self.completed_epochs, "stop_reason": self.stop_reason}
+                "completed_epochs": self.completed_epochs, "stop_reason": self.stop_reason,
+                "coordinator_resources": self.coordinator_resources}
 
     def persist(self):
         with open(os.path.join(self.dir, "summary.json"), "w") as fh:
@@ -132,6 +136,7 @@ class CoordinatorState:
         self.monitor = ResourceMonitor(interval=2.0).start()
         self.index_path = os.path.join(run_dir, "sessions_index.json")
         self.history = self._load_index()
+        self.recovered = self._recover_interrupted_sessions()
         self.registry = None          # enrollment.IdentityRegistry in pki mode
         self.lab_mode = False
         self.lab = None               # attacks.LabRunner when --lab-mode
@@ -144,9 +149,70 @@ class CoordinatorState:
     def _load_index(self) -> list[dict]:
         try:
             with open(self.index_path) as fh:
-                return json.load(fh)
+                data = json.load(fh)
         except Exception:
             return []
+        # keep only well-formed entries, so one corrupt line cannot break every later index write
+        return [h for h in data if isinstance(h, dict) and isinstance(h.get("session_id"), str)] \
+            if isinstance(data, list) else []
+
+    def _recover_interrupted_sessions(self) -> list[str]:
+        """Close sessions that were live when the previous coordinator process stopped (issue #13).
+
+        Such a session has no in-memory Session any more and its parties have lost their coordinator, so it can never
+        finish. Mark it terminal in the index and in its summary.json, keeping its real completed-epoch count so that
+        `resume_from` keeps working. A session that was STOPPING becomes STOPPED; any other live state becomes FAILED.
+        If summary.json already holds a terminal state (the process died between writing summary.json and the
+        index), the index is brought in line with it instead.
+        """
+        fixed = []
+        for h in self.history:
+            if not isinstance(h, dict) or h.get("state") in TERMINAL_STATES:
+                continue
+            sid = str(h.get("session_id", ""))
+            try:
+                check_session_id(sid)
+            except ValueError:
+                continue
+            path = os.path.join(self.run_dir, sid, "summary.json")
+            try:
+                with open(path) as fh:
+                    summ = json.load(fh)
+                summ = summ if isinstance(summ, dict) else None
+            except (OSError, ValueError):
+                summ = None
+            now, was = time.time(), h.get("state")
+            if summ is not None and summ.get("state") in TERMINAL_STATES:
+                state, reason, done = summ["state"], summ.get("stop_reason") or "", summ.get("completed_epochs")
+            else:
+                state = "STOPPED" if h.get("state") == "STOPPING" else "FAILED"
+                reason = INTERRUPTED_REASON
+                done = (summ or {}).get("completed_epochs", h.get("completed_epochs"))
+                if summ is not None:
+                    summ.update(state=state, stop_reason=reason, finished=summ.get("finished") or now)
+                    summ.setdefault("errors", []).append({"t": now, "reason": reason})
+                    summ.setdefault("events", []).append({"t": now, "time": now_iso(), "kind": "session",
+                                                          "msg": reason})
+                    tmp = path + ".tmp"
+                    with open(tmp, "w") as fh:
+                        json.dump(summ, fh, indent=2, default=str)
+                    os.replace(tmp, path)
+            try:
+                done = max(0, int(done or 0))
+            except (TypeError, ValueError):
+                done = 0
+            last = ((summ or {}).get("epoch_metrics") or [{}])[-1] or {}
+            h.update(state=state, completed_epochs=done, stop_reason=reason,
+                     finished=h.get("finished") or (summ or {}).get("finished") or now,
+                     last_test_auroc=(last.get("test") or {}).get("auroc", h.get("last_test_auroc")))
+            if state != "COMPLETED" and reason:
+                h["errors"] = list(h.get("errors") or [])[-2:] + [{"t": now, "reason": reason}]
+            fixed.append(sid)
+            log.warning("session %s was %s when the coordinator stopped; marked %s (%d epochs completed)",
+                        sid, was, state, done)
+        if fixed:
+            self._save_index()
+        return fixed
 
     def _save_index(self):
         known = {h["session_id"]: h for h in self.history}
@@ -292,6 +358,8 @@ class CoordinatorState:
                             for p in actives + passives]
             sid = time.strftime("s%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:4]
             s = Session(sid, cfg, participants, self.run_dir)
+            # issue #20 / NFR-6: record the coordinator's CPU/RSS for this run in runs/<sid>/resources_coordinator.jsonl
+            self.monitor.begin(s.writer("resources_coordinator"), {"session": sid, "node": "coordinator"})
             self.sessions[sid] = s
             self.order.append(sid)
             self.current = sid
@@ -322,7 +390,11 @@ class CoordinatorState:
         with self.cv:
             s = self.sessions.get(sid)
             if not s:
-                raise ValueError(f"unknown session {sid}")
+                old = next((h for h in self.history if isinstance(h, dict) and h.get("session_id") == sid), None)
+                if old is None:
+                    raise ValueError(f"unknown session {sid}")
+                # a session from before this coordinator process: it has already ended, so stopping it is a no-op
+                return {**old, "note": f"session already ended ({old.get('state')}); nothing to stop"}
             if s.state in ("STARTING", "RUNNING"):
                 s.stop_requested = True
                 s.stop_time = time.time()
@@ -394,6 +466,9 @@ class CoordinatorState:
         else:
             s.state = "COMPLETED"
         s.event("session", f"session {s.state.lower()} after {s.finished - (s.started or s.created):.1f}s")
+        res = self.monitor.end(s.id)
+        if res is not None:
+            s.coordinator_resources = res
         s.persist()
         self._save_index()
 
@@ -451,7 +526,7 @@ class CoordinatorState:
                     payload = {k2: v for k2, v in payload.items()
                                if k2 not in ("val", "test", "leakage", "privacy", "reached_target_s")}
                 s.party_epochs[req.party_id].append(payload)
-                s.writer("epochs").write({"party": req.party_id, **payload})
+                s.writer("epochs").write({"session": s.id, "party": req.party_id, **payload})
                 s.epoch_done[e].add(req.party_id)
                 if "val" in payload or "test" in payload:
                     s.epoch_metrics.append(payload)
@@ -575,13 +650,15 @@ class CoordinatorState:
             return {**s.brief(), "config": s.config, "participants": s.participants,
                     "progress": s.progress, "alignment": s.alignment, "epoch_metrics": s.epoch_metrics,
                     "party_epochs": dict(s.party_epochs), "finals": s.finals,
+                    "coordinator_resources": s.coordinator_resources,
                     "events": s.events[-200:], "recent_batches": list(s.recent)[-tail:]}
 
 
 def check_data_consistency(cfg: dict, parties: list[dict]):
     """Refuse a session whose parties hold data from different prepare-data runs, or whose data does
-    not match the session's `partition` / `overlap` / `binarize` expectations. Uses only the split
-    metadata in each party's own manifest (no data, no column names)."""
+    not match the session's `partition` / `overlap` / `binarize` expectations, or whose models would be too large
+    for a party (vfl/model_budget.py). Uses only the split metadata and counts in each party's own manifest (no
+    data, no column names)."""
     parts = {p["party_id"]: (p.get("summary") or {}).get("partition") for p in parties}
     with_m = {pid: m for pid, m in parts.items() if m}
     hashes = {m.get("manifest_sha256") for m in with_m.values()}
@@ -618,6 +695,22 @@ def check_data_consistency(cfg: dict, parties: list[dict]):
         if kind in SHAPED and (not shape or len(shape) != SHAPED[kind]):
             raise ValueError(f"{p['party_id']} uses bottom_model {kind!r}, which needs a {SHAPED[kind]}-D input "
                              f"shape, but its data manifest has shape={shape}")
+    # every party's models must fit: the schema bounds each key, this bounds their combination over the party's real
+    # input width (red-team issue: oversized model sizes were accepted and every party allocated until OOM-killed)
+    from . import model_budget
+    n_passive = sum(1 for p in parties if p.get("role") == "passive")
+    k_labels = next((m.get("num_classes") for m in with_m.values() if m.get("num_classes") is not None), None)
+    for p in parties:
+        summ = p.get("summary") or {}
+        model_budget.check_party(p["party_id"], resolve_bottom_kind(cfg, p["party_id"]), cfg,
+                                 n_features=_pos_int(summ.get("n_features")), shape=summ.get("shape"),
+                                 rows=_pos_int(summ.get("rows")), role=p.get("role", "passive"), n_passive=n_passive,
+                                 num_classes=cfg.get("num_classes") or _pos_int(k_labels))
+
+
+def _pos_int(v) -> int | None:
+    """A positive int from a party-reported summary field, else None (field missing or malformed: skip that part)."""
+    return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else None
 
 
 SECURITY_FIELDS = ("attack_type", "layer", "outcome", "defence", "source_ip", "claimed_identity", "cert_identity",

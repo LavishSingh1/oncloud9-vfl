@@ -24,14 +24,13 @@ from concurrent import futures
 
 import grpc
 
-import os
-
+from . import limits
 from .security import TLSFiles, describe_cert, effective_role, server_role
 from .telemetry import SECURITY
 
-# Largest gRPC message. Big enough for PSI over ~1M ids; tune with VFL_GRPC_MAX_MSG_MB. Together with the
-# per-identity concurrency cap this bounds the memory one authorised peer can make a node allocate.
-MAX_MSG = int(float(os.environ.get("VFL_GRPC_MAX_MSG_MB", "256")) * 1024 * 1024)
+# Largest gRPC message (vfl/limits.py, VFL_GRPC_MAX_MSG_MB). Together with the per-identity concurrency cap this
+# bounds the memory one authorised peer can make a node allocate.
+MAX_MSG = limits.MAX_GRPC_MSG
 DEFAULT_WORKERS = 64
 _OPTS = [("grpc.max_send_message_length", MAX_MSG), ("grpc.max_receive_message_length", MAX_MSG),
          ("grpc.keepalive_time_ms", 30000), ("grpc.keepalive_timeout_ms", 10000)]

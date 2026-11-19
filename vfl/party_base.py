@@ -224,6 +224,10 @@ class PartyNode:
             self.progress = {"session_id": self.session_id, "phase": "starting"}
             self.status = "running"
             self.slog = SessionLog(self.log_root, self.party_id, self.session_id)
+            # issue #20: CPU/RSS samples of THIS session go to logs/<party>/<session>/resources.jsonl, and the run
+            # summary aggregates this window only (not the whole process lifetime)
+            self.monitor.begin(self.slog.resources, {"session": self.session_id, "party": self.party_id,
+                                                     "role": self.role})
             self._session_thread = threading.Thread(target=self._session_wrapper, daemon=True,
                                                     name=f"session-{self.session_id}")
             self._session_thread.start()
@@ -257,6 +261,9 @@ class PartyNode:
         summary["party"] = self.party_id
         summary["role"] = self.role
         self.flush_telemetry()
+        res = self.monitor.end(sid)               # closes the session window before its file is closed
+        if res is not None:                       # every outcome (ok / stopped / failed) records this session's use
+            summary["resources"] = res
         if self.slog:
             self.slog.write_json("run_summary.json", summary)
             self.slog.close()

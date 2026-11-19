@@ -490,8 +490,8 @@ class ActiveNode(PartyNode):
         if s:
             with s.cv:
                 s.cv.notify_all()
-            for ev in list(s.epoch_events.values()):
-                ev.set()
+                for ev in list(s.epoch_events.values()):
+                    ev.set()
             s.aligned.set()
 
     # Session lookup. v2.3.1 parked EVERY unknown session id for 10 s, holding one of the caller's
@@ -608,12 +608,15 @@ class ActiveNode(PartyNode):
         s.splits = splits
         s.evals = eval_batches(splits, cfg["eval_batch_size"])
         s.core = ActiveCore(cfg, X, y, self.party_id, s.passive_ids, shape=self.data.shape, scaler=scaler)
+        if self.stop_event.is_set():                     # STOP that arrived while the model was being built
+            raise StopRequested()
         log.info("bottom model %s (%d params incl. top), %d classes (%s)%s", s.core.kind, s.core.n_params,
                  s.core.num_classes, "BCE" if s.core.binary else "cross-entropy",
                  f", label RR flips {s.core.label_flip_rate:.1%} of labels" if s.core.label_flip_rate else "")
         start_epoch = int(cfg.get("start_epoch", 0))
-        for e in range(cfg["epochs"]):
-            s.epoch_events[e] = threading.Event()
+        # Issue #10: v2.3.1 created one threading.Event per configured epoch here, before training (~1.2 KB
+        # each, so epochs=10^9 exhausted memory) in a loop that never looked at STOP. Each epoch's event is now
+        # created just before that epoch's barrier (below), so memory does not grow with `epochs`.
         restore_s = None
         if cfg.get("resume_from"):
             t_r = time.time()
@@ -633,6 +636,10 @@ class ActiveNode(PartyNode):
         t_train = time.time()
         epoch_rows, first_target_s = [], None
         for epoch in range(start_epoch, cfg["epochs"]):
+            # Create this epoch's event BEFORE the barrier: no party is released into epoch `epoch` (so no eval
+            # batch can commit and set it) until every party, this one included, has reached the barrier.
+            with s.cv:
+                s.epoch_events[epoch] = threading.Event()
             if not self.barrier(epoch) or self.stop_event.is_set():
                 break
             s.current_epoch = epoch
@@ -670,8 +677,10 @@ class ActiveNode(PartyNode):
                 save_checkpoint(self.ckpt_path(self.session_id, epoch), s.core.state(epoch))
             row["resources"] = {**self.monitor.latest(), "t": time.time()}    # v2.1: CPU/RSS over time
             epoch_rows.append(row)
+            with s.cv:
+                s.epoch_events.pop(epoch, None)          # done with it: at most one live event per session
             self.epoch_history.append(row)
-            self.slog.epochs.write(row)
+            self.slog.epochs.write({"session": self.session_id, **row})   # FR-10: keyed like batch rows
             self.report("epoch", row)
             log.info("epoch %d done in %.2fs: loss=%.4f val_auroc=%s test_auroc=%s", epoch, row["epoch_s"],
                      row["train_loss"], _f((row.get("val") or {}).get("auroc")),
@@ -699,7 +708,7 @@ class ActiveNode(PartyNode):
             "model_params_active": s.core.n_params, "defense": defense.describe(cfg.get("defense")),
             "privacy": defense.privacy_report(cfg, len(epoch_rows), len(s.passive_ids)), "bottom_model": s.core.kind,
             "num_classes": s.core.num_classes, "label_flip_rate": s.core.label_flip_rate,
-            "codec": cfg["codec"], "counters": dict(self.counters), "resources": self.monitor.summary(),
+            "codec": cfg["codec"], "counters": dict(self.counters), "resources": self.monitor.session_summary(),
             "env": {**self.env, **env}, "tls": self.tls.enabled,
         }
         return summary

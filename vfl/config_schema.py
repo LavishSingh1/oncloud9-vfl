@@ -30,6 +30,21 @@ SCHEMA_VERSION = 1
 
 BOTTOM_MODELS = ("mlp", "linear", "cnn", "cnn1d", "gru", "text")
 CODECS = ("fp32", "fp16", "int8", "topk")
+# Issue #10: an upper bound so a typo (epochs=1000000000) is refused at validation (HTTP 400) instead of reaching
+# the parties. Every PRD experiment uses <= 100 epochs; 10,000 leaves ample room for long lab runs.
+MAX_EPOCHS = 10_000
+# Model-size and runtime bounds (red-team issue "oversized session config exhausts party memory"): v2.3.1 set only a
+# minimum, so hidden_dim=10^9 / num_classes=10^9 / embed_dim=10^7 were accepted and every party allocated until the
+# kernel killed it, and torch_threads=10^6 segfaulted PyTorch. Every preset and PRD experiment is far below these
+# (largest preset width 256, embed 128, 100 classes, 8 threads). Combinations of valid values that are still too
+# big for a party's data are refused by vfl/model_budget.py when the session starts.
+MAX_WIDTH = 8192             # hidden_dim, top_hidden, text_hidden
+MAX_EMBED = 4096             # embed_dim: the [batch x embed_dim] wire tensor
+MAX_RNN_HIDDEN = 4096        # gru_hidden
+MAX_CHANNELS = 1024          # each cnn_channels entry
+MAX_KERNEL = 31              # cnn_kernel, cnn1d_kernel
+MAX_CLASSES = 1000           # num_classes: top-model output width
+MAX_TORCH_THREADS = 256      # torch_threads (each party also caps it at its own CPU count)
 # every split strategy any partitioner can write into a manifest (v1, v2, image, sensor, multimodal)
 PARTITION_STRATEGIES = ("random", "sequential", "importance_balanced", "importance_skewed", "dirichlet",
                         "importance", "correlated", "manual", "image_strips", "image_grid", "sensor_streams",
@@ -106,7 +121,8 @@ PARAMS: tuple[Param, ...] = (
     # ------------------------------------------------------------------ training
     _p("seed", "int", 42, "training", "Seed for model init, batch order, splits and defence noise.",
        presets=(0, 1, 2, 3, 4, 5, 7, 42, 123, 2026), min=0),
-    _p("epochs", "int", 10, "training", "Training epochs.", presets=(1, 2, 3, 5, 10, 15, 20, 30, 50, 100), min=1),
+    _p("epochs", "int", 10, "training", "Training epochs.",
+       presets=(1, 2, 3, 5, 10, 15, 20, 30, 50, 100), min=1, max=MAX_EPOCHS),
     _p("batch_size", "int", 64, "training", "Training mini-batch size (entities per exchanged batch).",
        presets=(16, 32, 64, 128, 256, 512, 1024), min=1),
     _p("lr", "float", 0.001, "training", "Learning rate (every party's optimizer uses the same value).",
@@ -126,15 +142,16 @@ PARAMS: tuple[Param, ...] = (
 
     # ------------------------------------------------------------------ model sizes
     _p("hidden_dim", "int", 64, "model", "MLP bottom hidden width (0 = a single linear layer).",
-       presets=(0, 16, 32, 64, 128, 256), min=0, applies_to=("mlp",)),
+       presets=(0, 16, 32, 64, 128, 256), min=0, max=MAX_WIDTH, applies_to=("mlp",)),
     _p("embed_dim", "int", 16, "model",
        "Representation width each party sends: the wire contract is [batch x embed_dim].",
-       presets=(2, 4, 8, 16, 32, 64, 128), min=1),
+       presets=(2, 4, 8, 16, 32, 64, 128), min=1, max=MAX_EMBED),
     _p("top_hidden", "int", 32, "model", "Top-model hidden width at the active party (0 = linear top).",
-       presets=(0, 16, 32, 64, 128, 256), min=0),
+       presets=(0, 16, 32, 64, 128, 256), min=0, max=MAX_WIDTH),
     _p("num_classes", "int", None, "model",
        "Number of classes. Empty = inferred from the labels (2 -> one logit + BCE, k > 2 -> cross-entropy).",
-       presets=(2, 3, 4, 5, 6, 8, 10, 20, 100), nullable=True, null_label="auto (from labels)", min=2),
+       presets=(2, 3, 4, 5, 6, 8, 10, 20, 100), nullable=True, null_label="auto (from labels)", min=2,
+       max=MAX_CLASSES),
 
     # ------------------------------------------------------------------ bottom models
     _p("bottom_model", "bottom_map", "mlp", "bottom",
@@ -142,23 +159,25 @@ PARAMS: tuple[Param, ...] = (
        choices=BOTTOM_MODELS, widget="party_models"),
     _p("cnn_channels", "int_list", [16, 32], "bottom",
        "Conv widths, one conv layer per entry (cnn and cnn1d). The default [16, 32] is the v2 network.",
-       presets=([8, 16], [16, 32], [32, 64], [16, 32, 64], [32, 64, 128], [16]), applies_to=("cnn", "cnn1d")),
+       presets=([8, 16], [16, 32], [32, 64], [16, 32, 64], [32, 64, 128], [16]), max=MAX_CHANNELS,
+       applies_to=("cnn", "cnn1d")),
     _p("cnn_kernel", "int", 3, "bottom", "2-D conv kernel size (odd; 'same' padding keeps the tile size).",
-       presets=(3, 5, 7), min=1, odd=True, applies_to=("cnn",), since="v2.1"),
+       presets=(3, 5, 7), min=1, max=MAX_KERNEL, odd=True, applies_to=("cnn",), since="v2.1"),
     _p("cnn_pool", "enum", "auto", "bottom",
        "Pooling after the 2-D convs. auto = 2x2 max-pool when the tile is at least 4x4 (v2 behaviour).",
        choices=("auto", "max", "avg", "none"), applies_to=("cnn",), since="v2.1"),
     _p("cnn1d_kernel", "int", 5, "bottom", "1-D conv kernel size over time (odd).",
-       presets=(3, 5, 7, 9), min=1, odd=True, applies_to=("cnn1d",), since="v2.1"),
+       presets=(3, 5, 7, 9), min=1, max=MAX_KERNEL, odd=True, applies_to=("cnn1d",), since="v2.1"),
     _p("cnn1d_pool", "enum", "mean", "bottom", "How the 1-D conv features are pooled over time (mean is v2).",
        choices=("mean", "max"), applies_to=("cnn1d",), since="v2.1"),
-    _p("gru_hidden", "int", 32, "bottom", "GRU hidden size.", presets=(16, 32, 64, 128), min=1, applies_to=("gru",)),
+    _p("gru_hidden", "int", 32, "bottom", "GRU hidden size.", presets=(16, 32, 64, 128), min=1,
+       max=MAX_RNN_HIDDEN, applies_to=("gru",)),
     _p("gru_layers", "int", 1, "bottom", "Stacked GRU layers (the last layer's final state feeds the head).",
        presets=(1, 2, 3), min=1, max=4, applies_to=("gru",), since="v2.1"),
     _p("text_hidden", "int", 0, "bottom",
        "Text bottom: hidden width of the trainable projection over the frozen encoder embeddings "
        "(0 = linear projection to embed_dim, v2). The encoder itself is chosen at data preparation.",
-       presets=(0, 32, 64, 128), min=0, applies_to=("text",), since="v2.1"),
+       presets=(0, 32, 64, 128), min=0, max=MAX_WIDTH, applies_to=("text",), since="v2.1"),
 
     # ------------------------------------------------------------------ alignment & codec
     _p("alignment", "enum", "experimental", "align",
@@ -180,7 +199,9 @@ PARAMS: tuple[Param, ...] = (
        presets=(0.05, 0.1, 0.25, 0.5, 0.75), min=0, max=1, min_exclusive=True, show_if=(("codec", ("topk",)),)),
 
     # ------------------------------------------------------------------ network & timing
-    _p("inject_rtt_ms", "float", 0.0, "network", "Application-level RTT emulated at passive parties.",
+    _p("inject_rtt_ms", "float", 0.0, "network",
+       "Application-level RTT emulated at passive parties. Benchmarking knob for NFR-3/E2 "
+       "(PRD sweep 0, 20, 50, 100 ms); supported range 0-500 ms.",
        presets=(0.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0), min=0, max=5000, unit="ms"),
     _p("rpc_deadline_s", "float", 30.0, "network", "Per-RPC deadline before a retry.",
        presets=(5.0, 10.0, 30.0, 60.0, 120.0, 300.0), min=0, min_exclusive=True, unit="s"),
@@ -306,8 +327,9 @@ PARAMS: tuple[Param, ...] = (
        show_if=(("security.leakage_audit", ("warn", "stop")),), since="v2.3"),
 
     # ------------------------------------------------------------------ runtime
-    _p("torch_threads", "int", 1, "runtime", "PyTorch CPU threads per party process.",
-       presets=(1, 2, 4, 8), min=1),
+    _p("torch_threads", "int", 1, "runtime",
+       "PyTorch CPU threads per party process (each party uses at most its own CPU count).",
+       presets=(1, 2, 4, 8), min=1, max=MAX_TORCH_THREADS),
     _p("deterministic", "bool", True, "runtime", "Deterministic kernels so CPU runs repeat exactly.", widget="toggle"),
     _p("telemetry_flush_s", "float", 2.0, "runtime", "How often parties flush batch telemetry to the coordinator.",
        presets=(0.5, 1.0, 2.0, 5.0), min=0, min_exclusive=True, unit="s", advanced=True),
@@ -397,6 +419,8 @@ def check_value(p: Param, v) -> str | None:
         if not isinstance(v, (list, tuple)) or not 1 <= len(v) <= 6 or \
                 any(isinstance(c, bool) or not isinstance(c, int) or c <= 0 for c in v):
             return "must be a list of 1-6 positive integers"
+        if p.max is not None and any(c > p.max for c in v):
+            return f"entries must be <= {p.max:g}"
         return None
     elif t == "pairs":
         if not isinstance(v, (list, tuple)) or any(
@@ -590,7 +614,7 @@ def render_table() -> str:
             if p.min is not None:
                 rng.append(f"{'>' if p.min_exclusive else '>='} {p.min:g}")
             if p.max is not None:
-                rng.append(f"<= {p.max:g}")
+                rng.append(f"{'entries ' if p.type == 'int_list' else ''}<= {p.max:g}")
             if p.odd:
                 rng.append("odd")
             if rng:

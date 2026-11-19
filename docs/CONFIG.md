@@ -8,7 +8,7 @@ Every key the training code reads. Set them in `configs/session.yaml`, with `pyt
 |---|---|---|---|---|---|
 | **Training** | | | | | |
 | `seed` | int (>= 0) | `42` | `0`, `1`, `2`, `3`, `4`, `5`, `7`, `42`, `123`, `2026` | all | Seed for model init, batch order, splits and defence noise. |
-| `epochs` | int (>= 1) | `10` | `1`, `2`, `3`, `5`, `10`, `15`, `20`, `30`, `50`, `100` | all | Training epochs. |
+| `epochs` | int (>= 1, <= 10000) | `10` | `1`, `2`, `3`, `5`, `10`, `15`, `20`, `30`, `50`, `100` | all | Training epochs. |
 | `batch_size` | int (>= 1) | `64` | `16`, `32`, `64`, `128`, `256`, `512`, `1024` | all | Training mini-batch size (entities per exchanged batch). |
 | `lr` | float (> 0) | `0.001` | `0.0001`, `0.0003`, `0.001`, `0.003`, `0.01`, `0.03`, `0.1` | all | Learning rate (every party's optimizer uses the same value). |
 | `optimizer` | enum | `adam` | `adam`, `sgd` | all | Optimizer at every party. |
@@ -18,20 +18,20 @@ Every key the training code reads. Set them in `configs/session.yaml`, with `pyt
 | `split.test` | float (> 0, <= 1) | `0.15` | `0.1`, `0.15`, `0.2`, `0.25`, `0.3` | all | Test fraction of the aligned entities. |
 | `eval_batch_size` | int (>= 1) | `512` | `128`, `256`, `512`, `1024`, `2048` | all | Batch size for validation/test passes. |
 | **Model sizes** | | | | | |
-| `hidden_dim` | int (>= 0) | `64` | `0`, `16`, `32`, `64`, `128`, `256` | mlp | MLP bottom hidden width (0 = a single linear layer). |
-| `embed_dim` | int (>= 1) | `16` | `2`, `4`, `8`, `16`, `32`, `64`, `128` | all | Representation width each party sends: the wire contract is [batch x embed_dim]. |
-| `top_hidden` | int (>= 0) | `32` | `0`, `16`, `32`, `64`, `128`, `256` | all | Top-model hidden width at the active party (0 = linear top). |
-| `num_classes` | int or null (>= 2) | `null` | `2`, `3`, `4`, `5`, `6`, `8`, `10`, `20`, `100` | all | Number of classes. Empty = inferred from the labels (2 -> one logit + BCE, k > 2 -> cross-entropy). |
+| `hidden_dim` | int (>= 0, <= 8192) | `64` | `0`, `16`, `32`, `64`, `128`, `256` | mlp | MLP bottom hidden width (0 = a single linear layer). |
+| `embed_dim` | int (>= 1, <= 4096) | `16` | `2`, `4`, `8`, `16`, `32`, `64`, `128` | all | Representation width each party sends: the wire contract is [batch x embed_dim]. |
+| `top_hidden` | int (>= 0, <= 8192) | `32` | `0`, `16`, `32`, `64`, `128`, `256` | all | Top-model hidden width at the active party (0 = linear top). |
+| `num_classes` | int or null (>= 2, <= 1000) | `null` | `2`, `3`, `4`, `5`, `6`, `8`, `10`, `20`, `100` | all | Number of classes. Empty = inferred from the labels (2 -> one logit + BCE, k > 2 -> cross-entropy). |
 | **Bottom models** | | | | | |
 | `bottom_model` | kind or {party: kind} | `mlp` | `mlp`, `linear`, `cnn`, `cnn1d`, `gru`, `text` | all | Bottom model per party. One kind for everyone, or a mapping {party_id: kind, default: kind}. |
-| `cnn_channels` | list of int | `[16, 32]` | `[8, 16]`, `[16, 32]`, `[32, 64]`, `[16, 32, 64]`, `[32, 64, 128]`, `[16]` | cnn, cnn1d | Conv widths, one conv layer per entry (cnn and cnn1d). The default [16, 32] is the v2 network. |
-| `cnn_kernel` | int (>= 1, odd) | `3` | `3`, `5`, `7` | cnn | 2-D conv kernel size (odd; 'same' padding keeps the tile size). *(new in v2.1; default = previous behaviour)* |
+| `cnn_channels` | list of int (entries <= 1024) | `[16, 32]` | `[8, 16]`, `[16, 32]`, `[32, 64]`, `[16, 32, 64]`, `[32, 64, 128]`, `[16]` | cnn, cnn1d | Conv widths, one conv layer per entry (cnn and cnn1d). The default [16, 32] is the v2 network. |
+| `cnn_kernel` | int (>= 1, <= 31, odd) | `3` | `3`, `5`, `7` | cnn | 2-D conv kernel size (odd; 'same' padding keeps the tile size). *(new in v2.1; default = previous behaviour)* |
 | `cnn_pool` | enum | `auto` | `auto`, `max`, `avg`, `none` | cnn | Pooling after the 2-D convs. auto = 2x2 max-pool when the tile is at least 4x4 (v2 behaviour). *(new in v2.1; default = previous behaviour)* |
-| `cnn1d_kernel` | int (>= 1, odd) | `5` | `3`, `5`, `7`, `9` | cnn1d | 1-D conv kernel size over time (odd). *(new in v2.1; default = previous behaviour)* |
+| `cnn1d_kernel` | int (>= 1, <= 31, odd) | `5` | `3`, `5`, `7`, `9` | cnn1d | 1-D conv kernel size over time (odd). *(new in v2.1; default = previous behaviour)* |
 | `cnn1d_pool` | enum | `mean` | `mean`, `max` | cnn1d | How the 1-D conv features are pooled over time (mean is v2). *(new in v2.1; default = previous behaviour)* |
-| `gru_hidden` | int (>= 1) | `32` | `16`, `32`, `64`, `128` | gru | GRU hidden size. |
+| `gru_hidden` | int (>= 1, <= 4096) | `32` | `16`, `32`, `64`, `128` | gru | GRU hidden size. |
 | `gru_layers` | int (>= 1, <= 4) | `1` | `1`, `2`, `3` | gru | Stacked GRU layers (the last layer's final state feeds the head). *(new in v2.1; default = previous behaviour)* |
-| `text_hidden` | int (>= 0) | `0` | `0`, `32`, `64`, `128` | text | Text bottom: hidden width of the trainable projection over the frozen encoder embeddings (0 = linear projection to embed_dim, v2). The encoder itself is chosen at data preparation. *(new in v2.1; default = previous behaviour)* |
+| `text_hidden` | int (>= 0, <= 8192) | `0` | `0`, `32`, `64`, `128` | text | Text bottom: hidden width of the trainable projection over the frozen encoder embeddings (0 = linear projection to embed_dim, v2). The encoder itself is chosen at data preparation. *(new in v2.1; default = previous behaviour)* |
 | **Alignment & codec** | | | | | |
 | `alignment` | enum | `experimental` | `experimental`, `dh_psi` | all | Entity alignment. experimental is NON-PRIVATE (salted hashes reveal the intersection); dh_psi is Diffie-Hellman PSI for any number of parties (two-party protocol with one passive, multi-party through the active party with more). |
 | `alignment_salt` | str or null | `null` | derived / random | all | Salt for experimental alignment hashes. Empty = derived from the seed (reproducible order). |
@@ -39,7 +39,7 @@ Every key the training code reads. Set them in `configs/session.yaml`, with `pyt
 | `codec` | enum | `fp32` | `fp32`, `fp16`, `int8`, `topk` | all | Wire encoding of representations and gradients. |
 | `topk_fraction` | float (> 0, <= 1) | `0.25` | `0.05`, `0.1`, `0.25`, `0.5`, `0.75` | all; when codec = topk | top-k codec: fraction of entries kept per row. |
 | **Network & timing** | | | | | |
-| `inject_rtt_ms` | float (>= 0, <= 5000) | `0.0` | `0.0`, `5.0`, `10.0`, `20.0`, `50.0`, `100.0`, `200.0`, `500.0` | all | Application-level RTT emulated at passive parties. |
+| `inject_rtt_ms` | float (>= 0, <= 5000) | `0.0` | `0.0`, `5.0`, `10.0`, `20.0`, `50.0`, `100.0`, `200.0`, `500.0` | all | Application-level RTT emulated at passive parties. Benchmarking knob for NFR-3/E2 (PRD sweep 0, 20, 50, 100 ms); supported range 0-500 ms. |
 | `rpc_deadline_s` | float (> 0) | `30.0` | `5.0`, `10.0`, `30.0`, `60.0`, `120.0`, `300.0` | all | Per-RPC deadline before a retry. |
 | `max_retries` | int (>= 0) | `3` | `0`, `1`, `2`, `3`, `5`, `10` | all | Retries per RPC on UNAVAILABLE / DEADLINE_EXCEEDED. |
 | `retry_backoff_s` | float (>= 0) | `0.2` | `0.05`, `0.1`, `0.2`, `0.5`, `1.0` | all | Linear back-off step between retries. |
@@ -84,7 +84,7 @@ Every key the training code reads. Set them in `configs/session.yaml`, with `pyt
 | `security.leakage_audit` | enum | `off` | `off`, `warn`, `stop` | all | After each epoch every passive measures how well its own raw features can be reconstructed (ridge decoder) from the representations it sent; warn or stop above leakage_r2_max. *(new in v2.3; default = previous behaviour)* |
 | `security.leakage_r2_max` | float (>= 0, <= 1) | `0.9` | `0.3`, `0.5`, `0.7`, `0.8`, `0.9`, `0.95` | all; when security.leakage_audit = warn/stop | Largest acceptable feature-reconstruction R^2 for the leakage audit (1 = features fully recoverable). *(new in v2.3; default = previous behaviour)* |
 | **Runtime & telemetry** | | | | | |
-| `torch_threads` | int (>= 1) | `1` | `1`, `2`, `4`, `8` | all | PyTorch CPU threads per party process. |
+| `torch_threads` | int (>= 1, <= 256) | `1` | `1`, `2`, `4`, `8` | all | PyTorch CPU threads per party process (each party uses at most its own CPU count). |
 | `deterministic` | bool | `true` | toggle | all | Deterministic kernels so CPU runs repeat exactly. |
 | `telemetry_flush_s` | float (> 0) | `2.0` | `0.5`, `1.0`, `2.0`, `5.0` | all | How often parties flush batch telemetry to the coordinator. |
 | **Run labels** | | | | | |

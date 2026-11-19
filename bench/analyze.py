@@ -141,6 +141,9 @@ def md_table(header, rows):
 
 
 # ------------------------------------------------------------------ analyses
+REQUIRED_REPETITIONS = 3       # PRD NFR-2: final-loss variation across three repetitions of one seed/configuration
+
+
 def analyse_e1(B, R, figdir):
     runs = [(e, d) for e, d in B.suite("e1") if not e["params"].get("repeat")]
     rep = [(e, d) for e, d in B.suite("e1") if e["params"].get("repeat")]
@@ -169,29 +172,60 @@ def analyse_e1(B, R, figdir):
     gaps = [p["gap_pp"] for p in per_seed if p["gap_pp"] is not None]
     nfr1 = {"value": f"mean B0−VFL AUROC gap {f(mean(gaps), 2)} pp (max {f(max(gaps) if gaps else None, 2)} pp) over {len(gaps)} seeds",
             "status": ("pass" if gaps and mean(gaps) <= 5.0 else "fail") if gaps else "not attempted"}
-    # reproducibility (NFR-2)
+    # reproducibility (NFR-2): the same seed/configuration run REQUIRED_REPETITIONS times (the original E1 run of
+    # that seed + its repeats) must give identical aligned order and committed steps; the final-loss variation is
+    # reported across those repetitions. The across-seed CV is labelled with the number of seeds actually run.
     nfr2 = {"status": "not attempted", "value": "no repeat run"}
     if rep and runs:
         seed = rep[0][0]["params"]["seed"]
         base = [d for e, d in runs if e["params"]["seed"] == seed]
         if base:
-            a, b = base[0], rep[0][1]
+            group = [base[0]] + [d for e, d in rep if e["params"]["seed"] == seed]
+            n_rep = len(group)
             dig = lambda d: sorted({(v or {}).get("order_digest") for v in d.get("alignment", {}).values()})  # noqa
-            fa, fb = fin(a, "active") or {}, fin(b, "active") or {}
-            la, lb = fa.get("final_train_loss"), fb.get("final_train_loss")
-            rel = abs(la - lb) / abs(la) * 100 if la and lb is not None else None
-            seeds_loss = [(fin(d, "active") or {}).get("final_train_loss") for _, d in runs]
-            cv = float(np.std(seeds_loss) / np.mean(seeds_loss) * 100) if len(seeds_loss) > 1 else None
-            same_order = dig(a) == dig(b) and len(dig(a)) == 1 and None not in dig(a)
-            same_steps = fa.get("optimizer_steps") == fb.get("optimizer_steps")
-            R["e1"]["reproducibility"] = {"same_aligned_order": same_order, "order_digest": dig(a),
-                                          "same_committed_steps": same_steps, "steps": fa.get("optimizer_steps"),
-                                          "repeat_final_loss_rel_diff_pct": rel, "across_seed_final_loss_cv_pct": cv}
-            ok = same_order and same_steps and rel is not None and rel <= 5.0
-            nfr2 = {"status": "pass" if ok else ("investigate" if same_order and same_steps else "fail"),
-                    "value": f"aligned order identical={same_order}, committed steps identical={same_steps} "
-                             f"({fa.get('optimizer_steps')}), same-seed final-loss diff {f(rel, 4)}%, "
-                             f"3-seed final-loss CV {f(cv, 2)}%"}
+            finals = [fin(d, "active") or {} for d in group]
+            losses = [x.get("final_train_loss") for x in finals]
+            spread = cv_rep = None
+            if losses and None not in losses and np.mean(losses):
+                m = abs(float(np.mean(losses)))
+                spread = (max(losses) - min(losses)) / m * 100
+                cv_rep = float(np.std(losses) / m * 100)
+            digests = [dig(d) for d in group]
+            same_order = all(x == digests[0] for x in digests) and len(digests[0]) == 1 and None not in digests[0]
+            steps = [x.get("optimizer_steps") for x in finals]
+            same_steps = len(set(steps)) == 1 and steps[0] is not None
+            seeds_loss = {}
+            for e, d in runs:                      # one final loss per distinct seed (repeats are not seeds)
+                v = (fin(d, "active") or {}).get("final_train_loss")
+                if v is not None:
+                    seeds_loss.setdefault(e["params"]["seed"], v)
+            n_seeds = len(seeds_loss)
+            vals = list(seeds_loss.values())
+            cv = float(np.std(vals) / np.mean(vals) * 100) if n_seeds > 1 and np.mean(vals) else None
+            R["e1"]["reproducibility"] = {"same_aligned_order": same_order, "order_digest": digests[0],
+                                          "same_committed_steps": same_steps, "steps": steps[0],
+                                          "repetitions": n_rep, "required_repetitions": REQUIRED_REPETITIONS,
+                                          "repetition_final_losses": losses,
+                                          "repeat_final_loss_rel_diff_pct": spread,
+                                          "repeat_final_loss_cv_pct": cv_rep,
+                                          "across_seed_final_loss_cv_pct": cv, "across_seed_n_seeds": n_seeds}
+            ok = same_order and same_steps and spread is not None and spread <= 5.0
+            enough = n_rep >= REQUIRED_REPETITIONS
+            if not (same_order and same_steps):
+                status = "fail"
+            elif not ok:
+                status = "investigate"                 # PRD: investigate variation above 5%
+            else:
+                status = "pass" if enough else "partial"
+            seed_txt = (f"{n_seeds}-seed final-loss CV {f(cv, 2)}%" if n_seeds > 1
+                        else f"across-seed final-loss CV n/a ({n_seeds} seed)")
+            nfr2 = {"status": status,
+                    "value": f"{n_rep} same-seed repetitions (seed {seed}): aligned order identical={same_order}, "
+                             f"committed steps identical={same_steps} ({steps[0]}), final-loss spread "
+                             f"{f(spread, 4)}% (max−min / mean; CV {f(cv_rep, 4)}%); {seed_txt}"
+                             + ("" if enough else f"; NFR-2 asks for {REQUIRED_REPETITIONS} repetitions, only "
+                                                  f"{n_rep} ran (bench/run_benchmarks.py --repeats "
+                                                  f"{REQUIRED_REPETITIONS})")}
     R["nfr"]["NFR-1"] = nfr1
     R["nfr"]["NFR-2"] = nfr2
     R["tables"]["E1 utility (final epoch, test split)"] = md_table(
@@ -362,10 +396,13 @@ def analyse_eff(B, R, figdir):
     # resources from the utility runs
     res = []
     for e, d in B.suite("e1")[:1]:
-        for pid, fr in d.get("finals", {}).items():
-            r = fr.get("resources") or {}
+        nodes = [(pid, fr.get("resources") or {}) for pid, fr in d.get("finals", {}).items()]
+        if d.get("coordinator_resources"):                  # issue #20: NFR-6 asks for the coordinator too
+            nodes.append(("coordinator", d["coordinator_resources"]))
+        for pid, r in nodes:
+            scope = "" if r.get("scope") == "session" else " (process lifetime)"   # pre-#20 results
             res.append(f"{pid}: CPU avg {f(r.get('cpu_avg_percent'), 1)}% / max {f(r.get('cpu_max_percent'), 1)}%, "
-                       f"RSS max {f(r.get('rss_max_mib'), 0)} MiB")
+                       f"RSS max {f(r.get('rss_max_mib'), 0)} MiB{scope}")
     if pairs:
         red = mean([(1 - b["app"] / a["app"]) * 100 for _, a, b in pairs])
         dau = mean([(b["auroc"] - a["auroc"]) * 100 for _, a, b in pairs])
@@ -393,6 +430,52 @@ def analyse_eff(B, R, figdir):
         save_fig(fig, figdir, "fig_efficiency_fp16")
     else:
         R["nfr"]["NFR-6"] = {"status": "baseline only", "value": " | ".join(res) or "no efficiency runs"}
+
+
+def _privacy_block(d):
+    """The privacy block the active party wrote for this run. Results recorded before the block carried its
+    adjacency/sensitivity/composition (rt-baseline and earlier) are re-derived from the session's own config with
+    the same accountant, so old benchmark folders still report the assumptions."""
+    pr = (fin(d, "active") or {}).get("privacy") or {}
+    blocks = [b for b in (pr.get("grad_channel"), pr.get("label_dp")) if b]
+    if (blocks and all("adjacency" in b for b in blocks)) or not d.get("config"):
+        return pr
+    from vfl import defense
+    n_passive = sum(1 for r in parts(d).values() if r == "passive") or 1
+    epochs = d.get("completed_epochs") or len(d.get("epoch_metrics") or [])
+    return defense.privacy_report(d.get("config") or {}, int(epochs or 0), n_passive)
+
+
+def privacy_accounting(runs):
+    """NFR-8: one row per reported privacy parameter, with the adjacency definition and the sensitivity and
+    composition assumptions it rests on, so the ε can be checked and re-derived from the report alone."""
+    rows, txt = [], []
+    for e, d in runs:
+        if not (d.get("epoch_metrics") or []):
+            continue
+        pr = _privacy_block(d)
+        gc, ld = pr.get("grad_channel"), pr.get("label_dp")
+        if gc:
+            comp, sens = gc.get("composition") or {}, gc.get("sensitivity") or {}
+            n = comp.get("releases_per_label")
+            rows.append([e["label"], "Gaussian on dL/dH (channel only)", f(gc.get("epsilon"), 3), f"{gc.get('delta'):g}",
+                         "one entity's training label changed",
+                         f"2C = {f(sens.get('value'), 4)} (C = {f(gc.get('clip'), 4)})", f"σC = {f(gc.get('noise_std'), 4)}",
+                         f"{n} release(s) per label (once per label per epoch)"
+                         + (f"; {comp.get('releases_per_label_if_passives_collude')} if {gc.get('n_passive')} passives "
+                            f"collude (ε {f(gc.get('epsilon_if_passives_collude'), 3)})" if (gc.get("n_passive") or 1) > 1 else ""),
+                         f"RDP, order {gc.get('rdp_order')}"])
+            txt.append(f"{e['label']}: dL/dH-channel ε={f(gc.get('epsilon'), 3)} at δ={gc.get('delta'):g} under "
+                       f"one-label-changed adjacency, L2 sensitivity 2C={f(sens.get('value'), 4)}, noise std "
+                       f"σC={f(gc.get('noise_std'), 4)}, {n} composition(s) (once per label per epoch), "
+                       f"RDP accountant (order {gc.get('rdp_order')}), no subsampling amplification")
+        if ld:
+            rows.append([e["label"], "randomized response on training labels", f(ld.get("epsilon"), 3), "0",
+                         "one entity's training label changed", "n/a", "n/a",
+                         "1 (labels randomized once; model and gradients are post-processing)", "pure ε-DP"])
+            txt.append(f"{e['label']}: label ε={f(ld.get('epsilon'), 3)} (δ=0) under one-label-changed adjacency, "
+                       f"applied once (post-processing thereafter)")
+    return rows, txt
 
 
 def analyse_def(B, R, figdir):
@@ -424,8 +507,15 @@ def analyse_def(B, R, figdir):
     R["def"] = [{"noise_multiplier": p[0], "auroc": p[1], "norm_leak_auc": p[2], "cosine_leak_auc": p[3],
                  "epoch_s": p[4]} for p in pts]
     on = [p for p in pts if p[0] > 0]
+    acc_rows, acc_txt = privacy_accounting(runs)
+    if acc_rows:
+        R["tables"]["NFR-8 privacy accounting: adjacency, sensitivity, composition"] = md_table(
+            ["run", "mechanism", "ε", "δ", "adjacency", "L2 sensitivity", "noise std", "composition", "accountant"],
+            acc_rows)
     txt = ("protected: active-party labels; adversary: passive party observing dL/dH; noise inserted per example "
-           "before serialisation; reported as gradient perturbation (no formal (ε,δ) claimed). ")
+           "before serialisation; reported as gradient perturbation (no formal end-to-end (ε,δ) claimed). ")
+    if acc_txt:
+        txt += "Accounting: " + "; ".join(acc_txt) + ". "
     if on and pts[0][0] == 0:
         txt += (f"Undefended cosine-attack AUC {f(pts[0][3], 3)} → {', '.join(f'{f(p[3], 3)} @σ={p[0]:g}' for p in on)}; "
                 f"test AUROC {f(pts[0][1], 4)} → {', '.join(f(p[1], 4) for p in on)}; epoch-time overhead "

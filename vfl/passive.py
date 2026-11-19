@@ -157,6 +157,8 @@ class PassiveNode(PartyNode):
         log.info("aligned %d of %d local rows via %s (%s)", res.n_aligned, len(self.data.ids), res.mode,
                  "private" if res.private else "NON-PRIVATE experimental")
         self.core = core = PassiveCore(cfg, X, self.party_id, shape=self.data.shape, scaler=scaler)
+        if self.stop_event.is_set():                     # STOP that arrived while the model was being built
+            raise StopRequested()
         log.info("bottom model %s (%d params)", core.kind, core.n_params)
         self.guard = guard.guard_config(cfg)                 # v2.3: defences against a malicious active party
         self.gmon = guard.GradientMonitor() if self.guard["grad_monitor"] != "off" else None
@@ -231,7 +233,7 @@ class PassiveNode(PartyNode):
             row["resources"] = {**self.monitor.latest(), "t": time.time()}    # v2.1: CPU/RSS over time
             epoch_rows.append(row)
             self.epoch_history.append(row)
-            self.slog.epochs.write(row)
+            self.slog.epochs.write({"session": self.session_id, **row})   # FR-10: keyed like batch rows
             self.report("epoch", row)
             log.info("epoch %d: %d batches in %.2fs (p50 %.1f ms, p95 %.1f ms), %.3f MiB app traffic",
                      epoch, len(batches), train_s, row["batch_ms_p50"] or 0, row["batch_ms_p95"] or 0,
@@ -257,7 +259,7 @@ class PassiveNode(PartyNode):
             "n_train_entities": n_train, "epochs": epoch_rows,
             "recovery_first_commit_s": first_commit_latency,
             "model_params_passive": core.n_params, "bottom_model": core.kind, "codec": cfg["codec"],
-            "counters": dict(self.counters), "resources": self.monitor.summary(),
+            "counters": dict(self.counters), "resources": self.monitor.session_summary(),
             "env": {**self.env, **env}, "tls": self.tls.enabled,
         }
         ch.close()

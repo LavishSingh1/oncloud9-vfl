@@ -28,6 +28,7 @@ Version: `vfl.__version__ == "2.3.1"` · Python 3.10–3.12 · PyTorch ≥ 2.4 (
 │   ├── codec.py  ids.py  limits.py  websec.py   encoding and input validation
 │   ├── telemetry.py  metrics_curves.py          logs and metrics
 │   ├── config.py  config_schema.py              session configuration
+│   ├── model_budget.py                          model-size check before any party allocates
 │   ├── local_sim.py                             single-process baselines (B0, B1, local VFL)
 │   ├── netem_proxy.py                           RTT-injecting TCP relay
 │   ├── dashboard/  webui/  attacks/             web interfaces and the lab conformance suite
@@ -50,7 +51,7 @@ Rules the code follows:
 * **Layer 3 has no network code.** `core.py`, `models.py`, `data.py`, `alignment.py` and `defense.py` work on numpy
   arrays and tensors only. The same core runs over gRPC (`active.py`/`passive.py`) and in one process
   (`local_sim.py`), which is how networked results are checked against local ones.
-* **`config_schema.py`, `metrics_curves.py` and `psi_wire.py` must not import torch or grpc**, so the CLI client,
+* **`config_schema.py`, `model_budget.py`, `metrics_curves.py` and `psi_wire.py` must not import torch or grpc**, so the CLI client,
   the dashboards and some tests run on machines without them.
 * **The web UIs never reimplement logic.** Every UI action runs the matching `python -m vfl.cli …` command as a
   background job (`vfl/webui/jobs.py`), so the UI and the CLI always give the same result.
@@ -124,6 +125,7 @@ The session state machine kept by the coordinator:
 |---|---|
 | `config_schema.py` | **Single source of truth for every session key.** `PARAMS` is a tuple of `Param(key, type, default, group, help, presets, choices, min, max, applies_to, show_if, widget, …)`. From it come the defaults, the validator, `--set` checking with "did you mean" suggestions, the dashboard form (`GET /api/config/schema`), `docs/CONFIG.md` and the README table. |
 | `config.py` | Loads `configs/*.yaml`, merges overrides (`--set k=v`, form values), validates through the schema, derives the alignment salt. |
+| `model_budget.py` | Estimates each party's model size from the config and its manifest (`rows`, `n_features`, `shape`): parameters, one batch's activations, and the `[batch x embed_dim]` wire tensor against the gRPC message limit. The coordinator runs it when a session starts (HTTP 400) and each party runs it again just before building its model. A new bottom model needs a matching `bottom_estimate` branch (`tests/test_config_size_bounds.py` checks the counts against PyTorch). |
 
 ### 4.8 Telemetry
 
@@ -191,7 +193,10 @@ Add new fields with new tag numbers only; never renumber or reuse a tag, so mixe
 2. Register it in `make_bottom` (and in `SHAPED` if it needs a manifest `shape`), and add the name to
    `BOTTOM_MODELS` in `vfl/config_schema.py`.
 3. Add its hyperparameters as schema keys with `applies_to=("your_kind",)` so the form shows them only when used.
-4. Add a shape/update test to `tests/test_models_v21.py`.
+   Give every key that sets a width, a count or a kernel size a `max`.
+4. Add a branch for it to `bottom_estimate` in `vfl/model_budget.py` (an unknown kind is refused at session start)
+   and a case to `SHAPED_CASES` in `tests/test_config_size_bounds.py`.
+5. Add a shape/update test to `tests/test_models_v21.py`.
 
 ### Add an alignment method
 
