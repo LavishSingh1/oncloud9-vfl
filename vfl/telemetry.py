@@ -103,16 +103,25 @@ def percentile(values, q):
 
 
 class ResourceMonitor:
-    """Samples this process's CPU% and RSS every `interval` seconds."""
+    """Samples this process's CPU% and RSS every `interval` seconds.
 
-    def __init__(self, interval: float = 1.0, writer: JsonlWriter | None = None, tags: dict | None = None):
+    Issue #20: one monitor lives for the whole process, but FR-10/NFR-6 records are per run. `begin(writer, tags)`
+    opens a session window: every sample from then on is also kept for that session and written, tagged with the
+    session id, to `writer` (the session's resources.jsonl); `session_summary()` aggregates that window only and
+    `end()` closes it. One sample is taken at begin and one at end, so even a sub-second session has samples.
+    The process-lifetime buffer is bounded (`keep` samples) and only feeds the live dashboard value."""
+
+    def __init__(self, interval: float = 1.0, writer: JsonlWriter | None = None, tags: dict | None = None,
+                 keep: int = 3600):
         self.interval = interval
         self.writer = writer
         self.tags = tags or {}
         self.proc = psutil.Process()
-        self.samples: list[tuple[float, float, float]] = []
+        self.samples: collections.deque = collections.deque(maxlen=keep)
         self._stop = threading.Event()
         self._thr = None
+        self._lock = threading.Lock()
+        self._win: dict | None = None
 
     def start(self):
         self.proc.cpu_percent(None)
@@ -122,12 +131,61 @@ class ResourceMonitor:
 
     def _run(self):
         while not self._stop.wait(self.interval):
+            self.sample()
+
+    def sample(self):
+        with self._lock:
             cpu = self.proc.cpu_percent(None)
             rss = self.proc.memory_info().rss / 2 ** 20
             t = time.time()
             self.samples.append((t, cpu, rss))
             if self.writer:
                 self.writer.write({**self.tags, "t": t, "cpu_percent": cpu, "rss_mib": rss})
+            w = self._win
+            if w is not None:
+                w["samples"].append((t, cpu, rss))
+                if w["writer"] is not None:
+                    try:
+                        w["writer"].write({**w["tags"], "t": t, "cpu_percent": cpu, "rss_mib": rss})
+                    except ValueError:            # the session's file was closed under us: stop writing to it
+                        w["writer"] = None
+
+    # ---- per-session window
+    def begin(self, writer: JsonlWriter | None = None, tags: dict | None = None):
+        with self._lock:
+            self._win = {"writer": writer, "tags": dict(tags or {}), "samples": [], "t0": time.time()}
+        self.sample()
+
+    def session_summary(self) -> dict:
+        with self._lock:
+            w = self._win
+            samples, t0 = (list(w["samples"]), w["t0"]) if w else ([], None)
+        return self._summarise(samples, "session", t0)
+
+    def end(self, session: str | None = None) -> dict | None:
+        """Close the window (only if it belongs to `session`, when given) and return its summary."""
+        with self._lock:
+            w = self._win
+            if w is None or (session is not None and w["tags"].get("session") != session):
+                return None
+        self.sample()
+        with self._lock:
+            if self._win is not w:
+                return None
+            self._win = None
+        return self._summarise(w["samples"], "session", w["t0"])
+
+    def _summarise(self, samples, scope: str, t0=None) -> dict:
+        out = {"scope": scope, "interval_s": self.interval, "n_samples": len(samples)}
+        if t0 is not None:
+            out["window_s"] = (samples[-1][0] if samples else time.time()) - t0
+        if not samples:
+            rss = self.proc.memory_info().rss / 2 ** 20
+            return {**out, "cpu_avg_percent": None, "cpu_max_percent": None, "rss_avg_mib": rss, "rss_max_mib": rss}
+        cpu = [x[1] for x in samples]
+        rss = [x[2] for x in samples]
+        return {**out, "cpu_avg_percent": float(np.mean(cpu)), "cpu_max_percent": float(np.max(cpu)),
+                "rss_avg_mib": float(np.mean(rss)), "rss_max_mib": float(np.max(rss))}
 
     def stop(self) -> dict:
         self._stop.set()
@@ -136,15 +194,8 @@ class ResourceMonitor:
         return self.summary()
 
     def summary(self) -> dict:
-        if not self.samples:
-            rss = self.proc.memory_info().rss / 2 ** 20
-            return {"cpu_avg_percent": None, "cpu_max_percent": None, "rss_avg_mib": rss, "rss_max_mib": rss,
-                    "n_samples": 0}
-        cpu = [s[1] for s in self.samples]
-        rss = [s[2] for s in self.samples]
-        return {"cpu_avg_percent": float(np.mean(cpu)), "cpu_max_percent": float(np.max(cpu)),
-                "rss_avg_mib": float(np.mean(rss)), "rss_max_mib": float(np.max(rss)),
-                "n_samples": len(self.samples)}
+        """Process-lifetime aggregate over the bounded buffer (live views only; run records use the session window)."""
+        return self._summarise(list(self.samples), "process")
 
     def latest(self) -> dict:
         if self.samples:

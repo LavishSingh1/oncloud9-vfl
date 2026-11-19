@@ -61,6 +61,7 @@ class Session:
         self.events: list[dict] = []
         self.recent = collections.deque(maxlen=3000)
         self.batch_counts = collections.Counter()
+        self.coordinator_resources: dict | None = None   # issue #20: the coordinator's own CPU/RSS for this run
         self.dir = os.path.join(run_dir, sid)
         os.makedirs(self.dir, exist_ok=True)
         self._writers: dict[str, JsonlWriter] = {}
@@ -106,7 +107,8 @@ class Session:
                 "alignment": self.alignment, "epoch_metrics": self.epoch_metrics,
                 "party_epochs": dict(self.party_epochs), "finals": self.finals, "errors": self.errors,
                 "events": self.events, "batch_record_counts": dict(self.batch_counts),
-                "completed_epochs": self.completed_epochs, "stop_reason": self.stop_reason}
+                "completed_epochs": self.completed_epochs, "stop_reason": self.stop_reason,
+                "coordinator_resources": self.coordinator_resources}
 
     def persist(self):
         with open(os.path.join(self.dir, "summary.json"), "w") as fh:
@@ -356,6 +358,8 @@ class CoordinatorState:
                             for p in actives + passives]
             sid = time.strftime("s%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:4]
             s = Session(sid, cfg, participants, self.run_dir)
+            # issue #20 / NFR-6: record the coordinator's CPU/RSS for this run in runs/<sid>/resources_coordinator.jsonl
+            self.monitor.begin(s.writer("resources_coordinator"), {"session": sid, "node": "coordinator"})
             self.sessions[sid] = s
             self.order.append(sid)
             self.current = sid
@@ -462,6 +466,9 @@ class CoordinatorState:
         else:
             s.state = "COMPLETED"
         s.event("session", f"session {s.state.lower()} after {s.finished - (s.started or s.created):.1f}s")
+        res = self.monitor.end(s.id)
+        if res is not None:
+            s.coordinator_resources = res
         s.persist()
         self._save_index()
 
@@ -519,7 +526,7 @@ class CoordinatorState:
                     payload = {k2: v for k2, v in payload.items()
                                if k2 not in ("val", "test", "leakage", "privacy", "reached_target_s")}
                 s.party_epochs[req.party_id].append(payload)
-                s.writer("epochs").write({"party": req.party_id, **payload})
+                s.writer("epochs").write({"session": s.id, "party": req.party_id, **payload})
                 s.epoch_done[e].add(req.party_id)
                 if "val" in payload or "test" in payload:
                     s.epoch_metrics.append(payload)
@@ -643,6 +650,7 @@ class CoordinatorState:
             return {**s.brief(), "config": s.config, "participants": s.participants,
                     "progress": s.progress, "alignment": s.alignment, "epoch_metrics": s.epoch_metrics,
                     "party_epochs": dict(s.party_epochs), "finals": s.finals,
+                    "coordinator_resources": s.coordinator_resources,
                     "events": s.events[-200:], "recent_batches": list(s.recent)[-tail:]}
 
 

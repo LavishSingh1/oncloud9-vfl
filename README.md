@@ -521,8 +521,8 @@ in front of the active party and start it with `--advertise RELAY_HOST:60051`.
 |---|---|
 | `logs/<node>/<node>.events.log` | human-readable node log (also shown live in the dashboard) |
 | `logs/<party>/<session>/batches.jsonl` | one record per batch: forward/encode/RPC/network/wait/compute/backward ms, tensor & serialized bytes, attempts, duplicates |
-| `logs/<party>/<session>/epochs.jsonl`, `resources.jsonl`, `run_summary.json` | per-epoch metrics, CPU/RSS samples, run summary with versions & determinism settings |
-| `runs/<session>/` (coordinator) | `config.json`, `events.jsonl`, `batches_<party>.jsonl`, `epochs.jsonl`, `summary.json` |
+| `logs/<party>/<session>/epochs.jsonl`, `resources.jsonl`, `run_summary.json` | per-epoch metrics, CPU/RSS samples of this session (every record carries `session`), run summary with versions, determinism settings and this session's CPU/RSS aggregate |
+| `runs/<session>/` (coordinator) | `config.json`, `events.jsonl`, `batches_<party>.jsonl`, `epochs.jsonl`, `resources_coordinator.jsonl` (the coordinator's own CPU/RSS samples for this session), `summary.json` (incl. `coordinator_resources`) |
 | `runs/sessions_index.json` | all sessions and their outcome |
 | `checkpoints/<party>/<session>/ckpt_epoch<k>.pt` | epoch checkpoints used by resume |
 

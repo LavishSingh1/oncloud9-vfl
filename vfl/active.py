@@ -678,7 +678,7 @@ class ActiveNode(PartyNode):
             with s.cv:
                 s.epoch_events.pop(epoch, None)          # done with it: at most one live event per session
             self.epoch_history.append(row)
-            self.slog.epochs.write(row)
+            self.slog.epochs.write({"session": self.session_id, **row})   # FR-10: keyed like batch rows
             self.report("epoch", row)
             log.info("epoch %d done in %.2fs: loss=%.4f val_auroc=%s test_auroc=%s", epoch, row["epoch_s"],
                      row["train_loss"], _f((row.get("val") or {}).get("auroc")),
@@ -706,7 +706,7 @@ class ActiveNode(PartyNode):
             "model_params_active": s.core.n_params, "defense": defense.describe(cfg.get("defense")),
             "privacy": defense.privacy_report(cfg, len(epoch_rows), len(s.passive_ids)), "bottom_model": s.core.kind,
             "num_classes": s.core.num_classes, "label_flip_rate": s.core.label_flip_rate,
-            "codec": cfg["codec"], "counters": dict(self.counters), "resources": self.monitor.summary(),
+            "codec": cfg["codec"], "counters": dict(self.counters), "resources": self.monitor.session_summary(),
             "env": {**self.env, **env}, "tls": self.tls.enabled,
         }
         return summary
