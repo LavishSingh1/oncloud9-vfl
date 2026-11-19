@@ -8,7 +8,7 @@ Every key the training code reads. Set them in `configs/session.yaml`, with `pyt
 |---|---|---|---|---|---|
 | **Training** | | | | | |
 | `seed` | int (>= 0) | `42` | `0`, `1`, `2`, `3`, `4`, `5`, `7`, `42`, `123`, `2026` | all | Seed for model init, batch order, splits and defence noise. |
-| `epochs` | int (>= 1) | `10` | `1`, `2`, `3`, `5`, `10`, `15`, `20`, `30`, `50`, `100` | all | Training epochs. |
+| `epochs` | int (>= 1, <= 10000) | `10` | `1`, `2`, `3`, `5`, `10`, `15`, `20`, `30`, `50`, `100` | all | Training epochs. |
 | `batch_size` | int (>= 1) | `64` | `16`, `32`, `64`, `128`, `256`, `512`, `1024` | all | Training mini-batch size (entities per exchanged batch). |
 | `lr` | float (> 0) | `0.001` | `0.0001`, `0.0003`, `0.001`, `0.003`, `0.01`, `0.03`, `0.1` | all | Learning rate (every party's optimizer uses the same value). |
 | `optimizer` | enum | `adam` | `adam`, `sgd` | all | Optimizer at every party. |

@@ -30,6 +30,9 @@ SCHEMA_VERSION = 1
 
 BOTTOM_MODELS = ("mlp", "linear", "cnn", "cnn1d", "gru", "text")
 CODECS = ("fp32", "fp16", "int8", "topk")
+# Issue #10: an upper bound so a typo (epochs=1000000000) is refused at validation (HTTP 400) instead of reaching
+# the parties. Every PRD experiment uses <= 100 epochs; 10,000 leaves ample room for long lab runs.
+MAX_EPOCHS = 10_000
 # every split strategy any partitioner can write into a manifest (v1, v2, image, sensor, multimodal)
 PARTITION_STRATEGIES = ("random", "sequential", "importance_balanced", "importance_skewed", "dirichlet",
                         "importance", "correlated", "manual", "image_strips", "image_grid", "sensor_streams",
@@ -106,7 +109,8 @@ PARAMS: tuple[Param, ...] = (
     # ------------------------------------------------------------------ training
     _p("seed", "int", 42, "training", "Seed for model init, batch order, splits and defence noise.",
        presets=(0, 1, 2, 3, 4, 5, 7, 42, 123, 2026), min=0),
-    _p("epochs", "int", 10, "training", "Training epochs.", presets=(1, 2, 3, 5, 10, 15, 20, 30, 50, 100), min=1),
+    _p("epochs", "int", 10, "training", "Training epochs.",
+       presets=(1, 2, 3, 5, 10, 15, 20, 30, 50, 100), min=1, max=MAX_EPOCHS),
     _p("batch_size", "int", 64, "training", "Training mini-batch size (entities per exchanged batch).",
        presets=(16, 32, 64, 128, 256, 512, 1024), min=1),
     _p("lr", "float", 0.001, "training", "Learning rate (every party's optimizer uses the same value).",
