@@ -2,7 +2,8 @@
 
 Suites (comma-separated with --suites):
   e1    correctness & utility: B0/B1/local-VFL baselines + networked C1 over --seeds,
-        plus a same-seed repeat for reproducibility (NFR-1, NFR-2)
+        plus same-seed repetitions of the first seed for reproducibility: --repeats runs of
+        that seed and configuration in total, 3 by default as NFR-2 asks (NFR-1, NFR-2)
   e2    network & efficiency: RTT x batch-size sweep (NFR-3..NFR-5)
   eff   efficiency variant: fp16 vs fp32 representations/gradients, paired seeds (NFR-6)
   def   inference defence on/off (and noise sweep), attack metric vs utility (FR-13, NFR-8)
@@ -155,8 +156,11 @@ class Runner:
                       f"B1 {res['b1_active_only']['final_test']['auroc']:.4f}  "
                       f"local-VFL {res['local_vfl']['final_test']['auroc']:.4f}")
             self.session("e1", f"c1-seed{seed}", {"seed": seed}, params={"seed": seed})
+        # NFR-2: the first seed's run plus (repeats - 1) more runs of the same seed and configuration
         seed = self.a.seeds[0]
-        self.session("e1", f"c1-seed{seed}-repeat", {"seed": seed}, params={"seed": seed, "repeat": True})
+        for k in range(1, max(1, self.a.repeats)):
+            label = f"c1-seed{seed}-repeat" + (f"{k}" if k > 1 else "")
+            self.session("e1", label, {"seed": seed}, params={"seed": seed, "repeat": True, "repeat_index": k})
 
     def e2(self):
         print("== E2 RTT x batch-size sweep")
@@ -343,6 +347,9 @@ def main():
     ap.add_argument("--sweep-epochs", type=int, default=3)
     ap.add_argument("--fault-epochs", type=int, default=3)
     ap.add_argument("--seeds", default="1,2,3")
+    ap.add_argument("--repeats", type=int, default=3,
+                    help="E1: runs of the first seed and configuration in total, the original included (NFR-2 asks "
+                         "for 3; 1 = no repeat, NFR-2 not attempted)")
     ap.add_argument("--sweep-seeds", default="1")
     ap.add_argument("--rtts", default="0,20,50,100")
     ap.add_argument("--batch-sizes", default="32,64,128")

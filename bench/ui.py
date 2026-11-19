@@ -72,6 +72,8 @@ BENCH_OPTIONS = {
     "sweep_epochs": {"flag": "--sweep-epochs", "default": 3, "widget": "select", "options": [1, 2, 3, 5, 10]},
     "fault_epochs": {"flag": "--fault-epochs", "default": 3, "widget": "select", "options": [3, 4, 5]},
     "seeds": {"flag": "--seeds", "default": [1, 2, 3], **_multi(range(1, 11))},
+    "repeats": {"flag": "--repeats", "default": 3, "widget": "select", "options": [1, 2, 3, 5, 10],
+                "help": "E1 same-seed repetitions in total (NFR-2 asks for 3)"},
     "sweep_seeds": {"flag": "--sweep-seeds", "default": [1], **_multi(range(1, 6))},
     "rtts": {"flag": "--rtts", "default": [0, 20, 50, 100], **_multi([0, 5, 10, 20, 50, 100, 200, 500])},
     "batch_sizes": {"flag": "--batch-sizes", "default": [32, 64, 128], **_multi([16, 32, 64, 128, 256, 512, 1024])},

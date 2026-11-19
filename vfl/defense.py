@@ -136,6 +136,13 @@ SEED_NOISE_WARNING = ("defense.noise_source is 'seed': the noise follows from th
                       "party it protects against can recompute and remove it - NOT a privacy defence (lab comparisons only)")
 
 
+LABEL_ADJACENCY = ("replace-one label adjacency: two training sets are neighbours if they differ in the training label "
+                   "of exactly one aligned entity (same entities, same features, same alignment)")
+RDP_ACCOUNTANT = ("RDP of the Gaussian mechanism, RDP(alpha) = alpha / (2 z^2) per release with z = noise std / L2 "
+                  "sensitivity, summed over releases and converted to (epsilon, delta) as in Balle et al. 2020; best "
+                  "order over RDP_ORDERS")
+
+
 def privacy_report(cfg: dict, epochs_completed: int, n_passive: int = 1) -> dict:
     """What can honestly be claimed about label privacy for this run."""
     d = cfg.get("defense") or {}
@@ -147,21 +154,51 @@ def privacy_report(cfg: dict, epochs_completed: int, n_passive: int = 1) -> dict
         out["label_dp"] = {"mechanism": "randomized response on training labels",
                            "epsilon": float(d["label_rr_epsilon"]), "delta": 0.0,
                            "scope": SEED_NOISE_WARNING if seed_noise else LABEL_DP_SCOPE,
-                           "unit": "one entity's label", "formal": not seed_noise}
+                           "unit": "one entity's label", "formal": not seed_noise,
+                           "protected_information": "each aligned entity's training label (active party)",
+                           "adjacency": LABEL_ADJACENCY,
+                           "sensitivity": None,     # randomized response is not an additive-noise mechanism
+                           "composition": {"releases_per_label": 1,
+                                           "rule": "each training label is randomized once per session (the same "
+                                                   "randomized labels are reused on resume); the model and every "
+                                                   "gradient are post-processing, so epsilon does not grow with "
+                                                   "epochs or with the number of passive parties",
+                                           "accountant": "pure epsilon-DP of k-ary randomized response, no composition"}}
     if d.get("type") == "grad_noise":
         sigma = float(d.get("noise_multiplier", 1.0))
         delta = float(d.get("delta", 1e-5))
+        clip = float(d.get("clip", 1.0))
+        releases = max(1, epochs_completed)
+        releases_all = releases * max(1, int(n_passive))
         # Changing one label can move that entity's clipped row from g to g' (both ||.|| <= C):
         # L2 sensitivity 2C, noise std sigma*C  ->  z = sigma / 2. Each label is used once per epoch.
-        eps, alpha = gaussian_rdp_to_dp(sigma / 2.0, max(1, epochs_completed), delta)
+        # The same assumptions are reported in the block below, so the epsilon can be checked and re-derived.
+        eps, alpha = gaussian_rdp_to_dp(sigma / 2.0, releases, delta)
         # each passive party receives its own noisy dL/dH rows for every label: colluding passives see
         # n_passive releases per epoch, so their joint budget composes over epochs x passives
-        eps_all, _ = gaussian_rdp_to_dp(sigma / 2.0, max(1, epochs_completed) * max(1, int(n_passive)), delta)
+        eps_all, _ = gaussian_rdp_to_dp(sigma / 2.0, releases_all, delta)
         out["grad_channel"] = {"mechanism": "per-example clip + Gaussian noise on dL/dH",
-                               "clip": float(d.get("clip", 1.0)), "noise_multiplier": sigma,
+                               "clip": clip, "noise_multiplier": sigma,
                                "epochs": epochs_completed, "epsilon": eps, "delta": delta, "rdp_order": alpha,
                                "epsilon_if_passives_collude": eps_all if int(n_passive) > 1 else eps,
                                "n_passive": int(n_passive),
+                               "protected_information": "each aligned entity's training label (active party)",
+                               "adjacency": LABEL_ADJACENCY,
+                               "sensitivity": {
+                                   "norm": "L2", "value": 2.0 * clip, "formula": "2C",
+                                   "derivation": "changing one entity's label can move its clipped dL/dH row from g "
+                                                 "to g' with ||g||, ||g'|| <= C, so ||g - g'|| <= 2C; other rows of "
+                                                 "the batch do not depend on that label"},
+                               "noise_std": sigma * clip,
+                               "effective_noise_multiplier": sigma / 2.0,
+                               "composition": {
+                                   "releases_per_label": releases,
+                                   "releases_per_label_if_passives_collude": releases_all,
+                                   "rule": "once per label per epoch: each entity appears in exactly one training "
+                                           "batch per epoch and its noisy row is sent once to each passive party; "
+                                           "composed over completed epochs (x passive parties if they collude); "
+                                           "no amplification by subsampling is assumed",
+                                   "accountant": RDP_ACCOUNTANT},
                                "scope": "dL/dH channel only - NOT end-to-end (labels also influence the top "
                                         "model's parameters, which shape later gradients)",
                                "guarantee": GUARANTEE_TEXT}
